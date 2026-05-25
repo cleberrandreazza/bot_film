@@ -14,7 +14,7 @@ ia = Cinemagoer()
 # ---- CONFIGURAÇÃO DO BANCO DE DADOS (SQLite no caminho do Render) ----
 def iniciar_banco():
     # Caminho configurado para a pasta /data do disco permanente do Render
-    conn = sqlite3.connect('/data/filmes.db')
+    conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS listas (
