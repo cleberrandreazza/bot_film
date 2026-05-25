@@ -8,16 +8,19 @@ import os
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+# 🌟 TROCA DE PREFIXO: Alterado de '!' para '$' para evitar conflito com outros bots
+bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help') 
 
 # Inicializa o Cinemagoer injetando cabeçalhos para evitar bloqueios do IMDb
 ia = Cinemagoer(headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
 
-# ---- CONFIGURAÇÃO DO BANCO DE DADOS ----
+# ---- CONFIGURAÇÃO DO BANCO DE DADOS (GLOBAL) ----
 def iniciar_banco():
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
+    # Mantemos a estrutura, mas o bot não vai mais filtrar por user_id para que a lista seja global
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS listas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,51 +65,53 @@ async def enviar_embed_filme(ctx, filme, texto_extra=""):
     await ctx.send(content=texto_extra, embed=embed)
 
 
-# ---- COMANDO: AJUDA (!help) ----
+# ---- COMANDO: AJUDA ($help) ----
 @bot.command(name="help")
 async def ajuda(ctx):
     embed = discord.Embed(
-        title="🤖 Guia de Comandos - Gerenciador de Filmes",
-        description="Aqui estão todos os comandos para organizar suas sessões de cinema:",
+        title="🤖 Guia de Comandos - Gerenciador de Filmes (LISTA GLOBAL)",
+        description="Aqui estão todos os comandos compartilhados para organizar o cinema do servidor:",
         color=0x2ecc71
     )
     embed.add_field(
-        name="🍿 `!adicionar [Nome do Filme]`", 
-        value="Busca o filme no IMDb e o adiciona à sua lista de espera (Watchlist).", 
+        name="🍿 `$adicionar [Nome do Filme]`", 
+        value="Busca no IMDb e adiciona à lista de espera coletiva do servidor.", 
         inline=False
     )
     embed.add_field(
-        name="✅ `!visto [Nome do Filme]`", 
-        value="Move um filme da lista de espera para 'Assistidos' ou adiciona um filme novo direto como visto.", 
+        name="✅ `$visto [Nome do Filme]`", 
+        value="Move um filme da fila global para 'Assistidos' ou adiciona um novo direto lá.", 
         inline=False
     )
     embed.add_field(
-        name="🗑️ `!remover [Nome do Filme]`", 
-        value="Deleta permanentemente um filme de qualquer uma das suas listas.", 
+        name="🗑️ `$remover [Nome do Filme]`", 
+        value="Deleta permanentemente um filme da lista global do servidor.", 
         inline=False
     )
     embed.add_field(
-        name="🎬 `!minhalista`", 
-        value="Mostra o seu catálogo pessoal contendo seus filmes 'Para Assistir' e os 'Já Vistos'.", 
+        name="🎬 `$minhalista`", 
+        value="Mostra o catálogo global completo (Watchlist e Já Vistos) do servidor.", 
         inline=False
     )
     embed.add_field(
-        name="🧠 `!dica`", 
-        value="O bot analisa seus gêneros favoritos e recomenda um filme surpresa do IMDb.", 
+        name="🧠 `$dica`", 
+        value="Recomenda um filme com base no histórico global ou nos sucessos do IMDb.", 
         inline=False
     )
-    embed.set_footer(text="Sempre use o prefixo ! antes de cada comando.")
+    embed.set_footer(text="Atenção: O prefixo agora é $")
     await ctx.send(embed=embed)
 
 
-# ---- COMANDO: ADICIONAR À FILA (WATCHLIST) ----
+# ---- COMANDO: ADICIONAR À FILA GLOBAL ----
 @bot.command(name="adicionar")
 async def adicionar_watchlist(ctx, *, nome_do_filme: str):
-    await ctx.send(f"🔍 Procurando '{nome_do_filme}' no IMDb...")
+    # Força uma busca limpa removendo espaços extras nas pontas e aspas soltas
+    busca = nome_do_filme.strip().replace('"', '').replace("'", "")
+    await ctx.send(f"🔍 Procurando '{busca}' no IMDb...")
     try:
-        resultados = ia.search_movie(nome_do_filme.strip())
+        resultados = ia.search_movie(busca)
         if not resultados:
-            await ctx.send("❌ Filme não encontrado no IMDb. Verifique a ortografia ou tente o nome em inglês.")
+            await ctx.send("❌ Filme não encontrado no IMDb. Dica: Tente pesquisar pelo nome original em inglês.")
             return
         
         filme_id = resultados[0].movieID
@@ -116,15 +121,16 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
         conn = sqlite3.connect('filmes.db')
         cursor = conn.cursor()
         
-        cursor.execute("SELECT status FROM listas WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
+        # 🌍 BUSCA GLOBAL: Não filtra por user_id
+        cursor.execute("SELECT status FROM listas WHERE filme_id = ?", (filme_id,))
         existe = cursor.fetchone()
         
         if existe:
-            await ctx.send(f"⚠️ **{titulo}** já está na sua lista como *{existe[0]}*!")
+            await ctx.send(f"⚠️ **{titulo}** já está na lista global do servidor como *{existe[0]}*!")
         else:
             cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'watchlist')", (user_id, filme_id, titulo))
             conn.commit()
-            await ctx.send(f"🍿 **{titulo}** foi adicionado à sua **Fila (Watchlist)**!")
+            await ctx.send(f"🍿 **{titulo}** foi adicionado à **Fila Global** do servidor!")
             
         conn.close()
     except Exception as e:
@@ -132,87 +138,90 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
         await ctx.send("❌ Ocorreu um erro na comunicação com o IMDb. Tente novamente.")
 
 
-# ---- COMANDO: MARCAR COMO VISTO (ASSISTIDO) ----
+# ---- COMANDO: MARCAR COMO VISTO NA LISTA GLOBAL ----
 @bot.command(name="visto")
 async def marcar_assistido(ctx, *, nome_do_filme: str):
-    user_id = str(ctx.author.id)
+    busca = nome_do_filme.strip().replace('"', '').replace("'", "")
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
-    cursor.execute("SELECT filme_id, titulo FROM listas WHERE user_id = ? AND titulo LIKE ? AND status = 'watchlist'", (user_id, f"%{nome_do_filme.strip()}%"))
+    # 🌍 BUSCA GLOBAL: Procura o filme na watchlist geral
+    cursor.execute("SELECT filme_id, titulo FROM listas WHERE titulo LIKE ? AND status = 'watchlist'", (f"%{busca}%",))
     resultado = cursor.fetchone()
 
     if resultado:
         filme_id, titulo = resultado
-        cursor.execute("UPDATE listas SET status = 'assistido' WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
+        cursor.execute("UPDATE listas SET status = 'assistido' WHERE filme_id = ?", (filme_id,))
         conn.commit()
-        await ctx.send(f"✅ **{titulo}** movido da fila para a lista de **Assistidos**!")
+        await ctx.send(f"✅ **{titulo}** movido para a lista global de **Assistidos**!")
         conn.close()
     else:
         conn.close()
-        await ctx.send(f"🔍 Buscando '{nome_do_filme}' no IMDb para registrar...")
+        await ctx.send(f"🔍 Não achei '{busca}' na fila. Buscando no IMDb para registrar direto como assistido...")
         try:
-            resultados = ia.search_movie(nome_do_filme.strip())
+            resultados = ia.search_movie(busca)
             if not resultados:
                 await ctx.send("❌ Filme não encontrado no IMDb.")
                 return
             filme_id = resultados[0].movieID
             titulo = resultados[0]['title']
+            user_id = str(ctx.author.id)
             
             conn = sqlite3.connect('filmes.db')
             cursor = conn.cursor()
             cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'assistido')", (user_id, filme_id, titulo))
             conn.commit()
-            await ctx.send(f"✅ **{titulo}** adicionado direto na sua lista de **Assistidos**!")
+            await ctx.send(f"✅ **{titulo}** adicionado direto nos **Assistidos** do servidor!")
             conn.close()
         except Exception:
             await ctx.send("❌ Erro ao conectar ao IMDb.")
 
 
-# ---- COMANDO: REMOVER FILME ----
+# ---- COMANDO: REMOVER DA LISTA GLOBAL ----
 @bot.command(name="remover")
 async def remover_filme(ctx, *, nome_do_filme: str):
-    user_id = str(ctx.author.id)
+    busca = nome_do_filme.strip().replace('"', '').replace("'", "")
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
-    cursor.execute("SELECT filme_id, titulo, status FROM listas WHERE user_id = ? AND titulo LIKE ?", (user_id, f"%{nome_do_filme.strip()}%"))
+    # 🌍 REMOÇÃO GLOBAL: Qualquer um pode remover qualquer filme pelo nome aproximado
+    cursor.execute("SELECT filme_id, titulo, status FROM listas WHERE titulo LIKE ?", (f"%{busca}%",))
     resultado = cursor.fetchone()
 
     if resultado:
         filme_id, titulo, status = resultado
-        cursor.execute("DELETE FROM listas WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
+        cursor.execute("DELETE FROM listas WHERE filme_id = ?", (filme_id,))
         conn.commit()
         
         categoria = "Fila (Watchlist)" if status == "watchlist" else "Assistidos"
-        await ctx.send(f"🗑️ **{titulo}** foi removido com sucesso da sua lista de *{categoria}*!")
+        await ctx.send(f"🗑️ **{titulo}** foi removido por {ctx.author.name} da lista global de *{categoria}*!")
     else:
-        await ctx.send(f"❌ Não encontrei nenhum filme com o nome parecido com '{nome_do_filme}' na sua lista.")
+        await ctx.send(f"❌ Não encontrei nenhum filme com o nome parecido com '{busca}' na lista do servidor.")
         
     conn.close()
 
 
-# ---- COMANDO: VISUALIZAR AS LISTAS ----
+# ---- COMANDO: VISUALIZAR A LISTA GLOBAL ----
 @bot.command(name="minhalista")
 async def mostrar_lista(ctx):
-    user_id = str(ctx.author.id)
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
-    cursor.execute("SELECT titulo FROM listas WHERE user_id = ? AND status = 'watchlist'", (user_id,))
+    # 🌍 VISUALIZAÇÃO GLOBAL: Traz tudo sem filtrar por usuário
+    cursor.execute("SELECT titulo FROM listas WHERE status = 'watchlist'")
     watchlist = cursor.fetchall()
 
-    cursor.execute("SELECT titulo FROM listas WHERE user_id = ? AND status = 'assistido'", (user_id,))
+    cursor.execute("SELECT titulo FROM listas WHERE status = 'assistido'")
     assistidos = cursor.fetchall()
     conn.close()
 
-    embed = discord.Embed(title=f"🎬 Catálogo de Cinema - {ctx.author.name}", color=0x3498db)
+    embed = discord.Embed(title="🎬 Catálogo de Cinema Coletivo do Servidor", color=0x3498db)
     
     txt_watchlist = "\n".join([f"• {f[0]}" for f in watchlist]) if watchlist else "*Nenhum filme na fila.*"
     txt_assistidos = "\n".join([f"• {f[0]}" for f in assistidos]) if assistidos else "*Nenhum filme assistido ainda.*"
 
-    embed.add_field(name="🍿 Para Assistir (Watchlist)", value=txt_watchlist, inline=False)
-    embed.add_field(name="✅ Já Vistos", value=txt_assistidos, inline=False)
+    embed.add_field(name="🍿 Para Assistir (Fila Global)", value=txt_watchlist, inline=False)
+    embed.add_field(name="✅ Já Vistos pelo Grupo", value=txt_assistidos, inline=False)
 
     await ctx.send(embed=embed)
 
@@ -220,19 +229,15 @@ async def mostrar_lista(ctx):
 # ---- COMANDO: SISTEMA DE DICAS COM PLANO DE CONTINGÊNCIA ----
 @bot.command(name="dica")
 async def dar_dica(ctx):
-    user_id = str(ctx.author.id)
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
     
-    cursor.execute("""
-        SELECT filme_id FROM listas 
-        WHERE user_id = ? AND status = 'assistido' 
-        ORDER BY id DESC LIMIT 5
-    """, (user_id,))
+    # Baseia-se nos últimos filmes assistidos globalmente pelo grupo
+    cursor.execute("SELECT filme_id FROM listas WHERE status = 'assistido' ORDER BY id DESC LIMIT 5")
     ultimos_assistidos = cursor.fetchall()
     conn.close()
 
-    await ctx.send("🧠 Analisando suas preferências recentes e consultando o IMDb...")
+    await ctx.send("🧠 Analisando os gostos do servidor e consultando o IMDb...")
 
     contagem_generos = {}
     if ultimos_assistidos:
@@ -263,7 +268,7 @@ async def dar_dica(ctx):
                 await enviar_embed_filme(
                     ctx, 
                     filme_escolhido, 
-                    f"🔥 **Em Alta + O seu Estilo:** Notei que você curte *{genero_favorito_do_momento}*. Que tal esse título que está bombando?"
+                    f"🔥 **Em Alta + O Estilo do Servidor:** Notei que a galera curte *{genero_favorito_do_momento}*. Que tal esse aqui?"
                 )
                 return
 
@@ -274,7 +279,7 @@ async def dar_dica(ctx):
         await enviar_embed_filme(
             ctx, 
             filme_detalhes, 
-            "🌍 **Bombando no Mundo:** Aqui está um dos filmes mais quentes do IMDb esta semana!"
+            "🌍 **Bombando no Mundo:** Aqui está um dos filmes mais quentes do IMDb esta semana para assistirem juntos!"
         )
 
     except Exception as e:
@@ -286,7 +291,7 @@ async def dar_dica(ctx):
             await enviar_embed_filme(
                 ctx, 
                 filme_detalhes, 
-                "🏛️ **Clássico Recomendado:** Os servidores do IMDb estão instáveis agora, mas aqui está uma recomendação imperdível e aclamada pelo público!"
+                "🏛️ **Clássico Recomendado:** O IMDb recusou a conexão temporariamente, mas aqui está uma recomendação imperdível para o grupo!"
             )
         except Exception:
             await ctx.send("❌ O sistema do IMDb está fora do ar no momento. Tente novamente em instantes!")
