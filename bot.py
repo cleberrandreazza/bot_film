@@ -1,9 +1,9 @@
+import os
+import sqlite3
 import discord
 from discord.ext import commands
-import sqlite3
 import requests
 import random
-import os
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 intents = discord.Intents.default()
@@ -11,9 +11,13 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help') 
 
-# 💾 DEFINIÇÃO DO CAMINHO DO BANCO DE DADOS PERSISTENTE
-# Se estiver rodando no Railway, usa o volume (/data/filmes.db). Se for local, salva na pasta do projeto.
-DB_PATH = '/data/filmes.db' if os.path.exists('/data') else 'filmes.db'
+# 💾 BLINDAGEM DO BANCO DE DADOS (PERSISTÊNCIA COMPLETA)
+# Se a pasta /data criada pelo volume do Railway existir, salva lá dentro. 
+# Se você rodar local no VS Code, ele salva na raiz do seu projeto sem quebrar.
+if os.path.exists('/data'):
+    DB_PATH = '/data/filmes.db'
+else:
+    DB_PATH = 'filmes.db'
 
 def iniciar_banco():
     conn = sqlite3.connect(DB_PATH)
@@ -35,6 +39,7 @@ iniciar_banco()
 @bot.event
 async def on_ready():
     print(f"🚀 Bot Coletivo de Filmes Online como {bot.user}")
+    print(f"📦 Armazenamento seguro configurado em: {DB_PATH}")
 
 # ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR NOME ----
 def buscar_imdb(nome_filme):
