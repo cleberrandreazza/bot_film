@@ -9,11 +9,12 @@ import os
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+# Remove o comando !help padrão do Discord para usarmos o nosso personalizado
+bot.remove_command('help') 
 ia = Cinemagoer()
 
-# ---- CONFIGURAÇÃO DO BANCO DE DADOS (SQLite no caminho do Render) ----
+# ---- CONFIGURAÇÃO DO BANCO DE DADOS (Local na raiz do projeto) ----
 def iniciar_banco():
-    # Caminho configurado para a pasta /data do disco permanente do Render
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
     cursor.execute('''
@@ -60,7 +61,46 @@ async def enviar_embed_filme(ctx, filme, texto_extra=""):
     await ctx.send(content=texto_extra, embed=embed)
 
 
-# ---- COMANDO 1: ADICIONAR À FILA (WATCHLIST) ----
+# ---- COMANDO: AJUDA (!help) ----
+@bot.command(name="help")
+async def ajuda(ctx):
+    embed = discord.Embed(
+        title="🤖 Guia de Comandos - Gerenciador de Filmes",
+        description="Aqui estão todos os comandos que você pode usar para organizar suas sessões de cinema:",
+        color=0x2ecc71
+    )
+    
+    embed.add_field(
+        name="🍿 `!adicionar [Nome do Filme]`", 
+        value="Busca o filme no IMDb e o adiciona na sua lista de espera (Watchlist).", 
+        inline=False
+    )
+    embed.add_field(
+        name="✅ `!visto [Nome do Filme]`", 
+        value="Move um filme da sua lista de espera para 'Assistidos' ou adiciona um filme novo direto como assistido.", 
+        inline=False
+    )
+    embed.add_field(
+        name="❌ `!remover [Nome do Filme]`", 
+        value="Deleta permanentemente um filme de qualquer uma das suas listas.", 
+        inline=False
+    )
+    embed.add_field(
+        name="🎬 `!minhalista`", 
+        value="Mostra o seu catálogo pessoal contendo seus filmes 'Para Assistir' e os 'Já Vistos'.", 
+        inline=False
+    )
+    embed.add_field(
+        name="🧠 `!dica`", 
+        value="O bot analisa seus gêneros mais assistidos e recomenda um filme surpresa que está bombando no IMDb.", 
+        inline=False
+    )
+    
+    embed.set_footer(text="Sempre use o prefixo ! antes de cada comando.")
+    await ctx.send(embed=embed)
+
+
+# ---- COMANDO: ADICIONAR À FILA (WATCHLIST) ----
 @bot.command(name="adicionar")
 async def adicionar_watchlist(ctx, *, nome_do_filme: str):
     await ctx.send(f"🔍 Procurando '{nome_do_filme}' no IMDb...")
@@ -74,7 +114,7 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
     titulo = resultados[0]['title']
     user_id = str(ctx.author.id)
 
-    conn = sqlite3.connect('/data/filmes.db')
+    conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
     
     cursor.execute("SELECT status FROM listas WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
@@ -90,11 +130,11 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
     conn.close()
 
 
-# ---- COMANDO 2: MARCAR COMO VISTO (ASSISTIDO) ----
+# ---- COMANDO: MARCAR COMO VISTO (ASSISTIDO) ----
 @bot.command(name="visto")
 async def marcar_assistido(ctx, *, nome_do_filme: str):
     user_id = str(ctx.author.id)
-    conn = sqlite3.connect('/data/filmes.db')
+    conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
     cursor.execute("SELECT filme_id, titulo FROM listas WHERE user_id = ? AND titulo LIKE ? AND status = 'watchlist'", (user_id, f"%{nome_do_filme}%"))
@@ -121,11 +161,35 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
     conn.close()
 
 
-# ---- COMANDO 3: VISUALIZAR AS LISTAS ----
+# ---- COMANDO: REMOVER DA LISTA ----
+@bot.command(name="remover")
+async def remover_filme(ctx, *, nome_do_filme: str):
+    user_id = str(ctx.author.id)
+    conn = sqlite3.connect('filmes.db')
+    cursor = conn.cursor()
+
+    # Busca se o filme existe na lista do usuário (independente de ser watchlist ou assistido)
+    cursor.execute("SELECT filme_id, titulo, status FROM listas WHERE user_id = ? AND titulo LIKE ?", (user_id, f"%{nome_do_filme}%"))
+    resultado = cursor.fetchone()
+
+    if resultado:
+        filme_id, titulo, status = resultado
+        cursor.execute("DELETE FROM listas WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
+        conn.commit()
+        
+        categoria = "Fila (Watchlist)" if status == "watchlist" else "Assistidos"
+        await ctx.send(f"🗑️ **{titulo}** foi removido com sucesso da sua lista de *{categoria}*!")
+    else:
+        await ctx.send(f"❌ Não encontrei nenhum filme com o nome parecido com '{nome_do_filme}' no seu catálogo.")
+        
+    conn.close()
+
+
+# ---- COMANDO: VISUALIZAR AS LISTAS ----
 @bot.command(name="minhalista")
 async def mostrar_lista(ctx):
     user_id = str(ctx.author.id)
-    conn = sqlite3.connect('/data/filmes.db')
+    conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
     cursor.execute("SELECT titulo FROM listas WHERE user_id = ? AND status = 'watchlist'", (user_id,))
@@ -146,11 +210,11 @@ async def mostrar_lista(ctx):
     await ctx.send(embed=embed)
 
 
-# ---- COMANDO 4: SISTEMA DE DICAS AVANÇADO (HISTÓRICO RECENTE + TRENDS) ----
+# ---- COMANDO: SISTEMA DE DICAS AVANÇADO ----
 @bot.command(name="dica")
 async def dar_dica(ctx):
     user_id = str(ctx.author.id)
-    conn = sqlite3.connect('/data/filmes.db')
+    conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -213,5 +277,4 @@ async def dar_dica(ctx):
 
 
 # ---- EXECUÇÃO DO BOT ----
-# Puxa o token direto da variável de ambiente configurada no painel do Render
 bot.run(os.environ.get('DISCORD_TOKEN'))
