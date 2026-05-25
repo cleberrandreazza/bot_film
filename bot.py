@@ -11,9 +11,12 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help') 
 
-# ---- CONFIGURAÇÃO DO BANCO DE DADOS (GLOBAL) ----
+# 💾 DEFINIÇÃO DO CAMINHO DO BANCO DE DADOS PERSISTENTE
+# Se estiver rodando no Railway, usa o volume (/data/filmes.db). Se for local, salva na pasta do projeto.
+DB_PATH = '/data/filmes.db' if os.path.exists('/data') else 'filmes.db'
+
 def iniciar_banco():
-    conn = sqlite3.connect('filmes.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS listas (
@@ -64,7 +67,7 @@ def buscar_imdb(nome_filme):
         print(f"Erro na busca do IMDb: {e}")
     return None
 
-# ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR ID DIRECTO (Para o comando !dica) ----
+# ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR ID DIRECTO ----
 def buscar_imdb_por_id(imdb_id):
     url = f"https://v3.sg.media-imdb.com/suggestion/x/{imdb_id}.json"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -114,7 +117,7 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
         await ctx.send("❌ Filme não encontrado no IMDb. Verifique o nome (nomes em inglês funcionam melhor!).")
         return
 
-    conn = sqlite3.connect('filmes.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     cursor.execute("SELECT status FROM listas WHERE filme_id = ?", (filme['id'],))
@@ -140,7 +143,7 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
 # ---- COMANDO: MARCAR COMO VISTO ----
 @bot.command(name="visto")
 async def marcar_assistido(ctx, *, nome_do_filme: str):
-    conn = sqlite3.connect('filmes.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("SELECT filme_id, titulo FROM listas WHERE titulo LIKE ? AND status = 'watchlist'", (f"%{nome_do_filme.strip()}%",))
@@ -160,7 +163,7 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
             await ctx.send("❌ Filme não encontrado.")
             return
         
-        conn = sqlite3.connect('filmes.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'assistido')", (str(ctx.author.id), filme['id'], filme['titulo']))
         conn.commit()
@@ -171,7 +174,7 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
 # ---- COMANDO: REMOVER ----
 @bot.command(name="remover")
 async def remover_filme(ctx, *, nome_do_filme: str):
-    conn = sqlite3.connect('filmes.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("SELECT filme_id, titulo FROM listas WHERE titulo LIKE ?", (f"%{nome_do_filme.strip()}%",))
@@ -191,7 +194,7 @@ async def remover_filme(ctx, *, nome_do_filme: str):
 # ---- COMANDO: VER LISTA GLOBAL ----
 @bot.command(name="minhalista")
 async def mostrar_lista(ctx):
-    conn = sqlite3.connect('filmes.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("SELECT titulo FROM listas WHERE status = 'watchlist'")
@@ -212,12 +215,11 @@ async def mostrar_lista(ctx):
     await ctx.send(embed=embed)
 
 
-# ---- COMANDO: DICA COLETIVA REFORMULADA ----
+# ---- COMANDO: DICA COLETIVA ----
 @bot.command(name="dica")
 async def dar_dica(ctx):
     await ctx.send("🧠 Sorteando uma recomendação de peso no acervo do IMDb...")
     
-    # Pool variado com ótimos filmes de diversos estilos (Sci-Fi, Ação, Suspense, Drama, Terror)
     filmes_pool = [
         'tt0111161', 'tt0468569', 'tt1375666', 'tt0137523', 'tt0110912', 
         'tt0816692', 'tt0109830', 'tt0068646', 'tt6751668', 'tt0499549', 
