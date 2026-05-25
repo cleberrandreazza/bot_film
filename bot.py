@@ -115,7 +115,7 @@ async def ajuda(ctx):
     embed.add_field(name="🍿 `$adicionar [Nome do Filme]`", value="Busca no IMDb e joga na Fila Geral do servidor.", inline=False)
     embed.add_field(name="✅ `$visto [Nome do Filme]`", value="Passa o filme para a lista de 'Assistidos' do grupo.", inline=False)
     embed.add_field(name="🗑️ `$remover [Nome do Filme]`", value="Apaga o filme das listas do grupo.", inline=False)
-    embed.add_field(name="🎬 `$minhalista`", value="Exibe a Watchlist e os Já Vistos de todo mundo.", inline=False)
+    embed.add_field(name="🎬 `$lista`", value="Exibe a Watchlist e os Já Vistos de todo mundo.", inline=False)
     embed.add_field(name="🧠 `$dica`", value="Sorteia uma recomendação de filme aclamado para o grupo assistir.", inline=False)
     embed.set_footer(text="Prefixo atual: $ | Lista 100% Compartilhada")
     await ctx.send(embed=embed)
@@ -207,7 +207,7 @@ async def remover_filme(ctx, *, nome_do_filme: str):
 
 
 # ---- COMANDO: VER LISTA GLOBAL ----
-@bot.command(name="minhalista")
+@bot.command(name="lista")
 async def mostrar_lista(ctx):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
