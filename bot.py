@@ -1,9 +1,9 @@
-import os
-import sqlite3
 import discord
 from discord.ext import commands
+import sqlite3
 import requests
 import random
+import os
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 intents = discord.Intents.default()
@@ -11,13 +11,22 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help') 
 
-# 💾 BLINDAGEM DO BANCO DE DADOS (PERSISTÊNCIA COMPLETA)
-# Se a pasta /data criada pelo volume do Railway existir, salva lá dentro. 
-# Se você rodar local no VS Code, ele salva na raiz do seu projeto sem quebrar.
-if os.path.exists('/data'):
+# 💾 BLINDAGEM DO BANCO DE DADOS (PERSISTÊNCIA ABSOLUTA)
+# 1. Definimos o caminho baseado no ambiente do Railway (/data) ou local
+if os.path.exists('/data') or os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
     DB_PATH = '/data/filmes.db'
 else:
     DB_PATH = 'filmes.db'
+
+# 2. SEGREDO DO RAILWAY: Força a criação da pasta caso o volume ainda esteja indexando no boot
+# Isso evita que o SQLite crie um arquivo "fantasma" que some no próximo deploy.
+dirname = os.path.dirname(DB_PATH)
+if dirname and not os.path.exists(dirname):
+    try:
+        os.makedirs(dirname, exist_ok=True)
+        print(f"📁 Pasta de volume {dirname} criada com sucesso para persistência.")
+    except Exception as e:
+        print(f"⚠️ Erro ao criar diretório do volume: {e}")
 
 def iniciar_banco():
     conn = sqlite3.connect(DB_PATH)
@@ -39,7 +48,7 @@ iniciar_banco()
 @bot.event
 async def on_ready():
     print(f"🚀 Bot Coletivo de Filmes Online como {bot.user}")
-    print(f"📦 Armazenamento seguro configurado em: {DB_PATH}")
+    print(f"📦 Caminho ativo e seguro do Banco de Dados: {os.path.abspath(DB_PATH)}")
 
 # ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR NOME ----
 def buscar_imdb(nome_filme):
@@ -72,7 +81,7 @@ def buscar_imdb(nome_filme):
         print(f"Erro na busca do IMDb: {e}")
     return None
 
-# ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR ID DIRECTO ----
+# ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR ID DIRETO ----
 def buscar_imdb_por_id(imdb_id):
     url = f"https://v3.sg.media-imdb.com/suggestion/x/{imdb_id}.json"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -106,7 +115,7 @@ async def ajuda(ctx):
     embed.add_field(name="🍿 `$adicionar [Nome do Filme]`", value="Busca no IMDb e joga na Fila Geral do servidor.", inline=False)
     embed.add_field(name="✅ `$visto [Nome do Filme]`", value="Passa o filme para a lista de 'Assistidos' do grupo.", inline=False)
     embed.add_field(name="🗑️ `$remover [Nome do Filme]`", value="Apaga o filme das listas do grupo.", inline=False)
-    embed.add_field(name="🎬 `$lista`", value="Exibe a Watchlist e os Já Vistos de todo mundo.", inline=False)
+    embed.add_field(name="🎬 `$minhalista`", value="Exibe a Watchlist e os Já Vistos de todo mundo.", inline=False)
     embed.add_field(name="🧠 `$dica`", value="Sorteia uma recomendação de filme aclamado para o grupo assistir.", inline=False)
     embed.set_footer(text="Prefixo atual: $ | Lista 100% Compartilhada")
     await ctx.send(embed=embed)
@@ -122,6 +131,7 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
         await ctx.send("❌ Filme não encontrado no IMDb. Verifique o nome (nomes em inglês funcionam melhor!).")
         return
 
+    # Garante o uso da variável DB_PATH para não resetar
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -197,7 +207,7 @@ async def remover_filme(ctx, *, nome_do_filme: str):
 
 
 # ---- COMANDO: VER LISTA GLOBAL ----
-@bot.command(name="lista")
+@bot.command(name="minhalista")
 async def mostrar_lista(ctx):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
