@@ -1,2 +1,2 @@
 discord.py
-cinemagoer
+cinemagoer==2023.05.03

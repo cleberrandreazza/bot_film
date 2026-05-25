@@ -9,12 +9,12 @@ import os
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.remove_command('help') # Remove o help padrão para usarmos o nosso personalizado
+bot.remove_command('help') 
 
-# Configura o Cinemagoer com cabeçalhos para evitar bloqueios de conexão
-ia = Cinemagoer()
+# Inicializa o Cinemagoer injetando cabeçalhos de um navegador real para evitar bloqueios
+ia = Cinemagoer(headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
 
-# ---- CONFIGURAÇÃO DO BANCO DE DADOS (Local na raiz do projeto) ----
+# ---- CONFIGURAÇÃO DO BANCO DE DADOS ----
 def iniciar_banco():
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
@@ -24,7 +24,7 @@ def iniciar_banco():
             user_id TEXT,
             filme_id TEXT,
             titulo TEXT,
-            status TEXT -- 'watchlist' ou 'assistido'
+            status TEXT
         )
     ''')
     conn.commit()
@@ -82,7 +82,7 @@ async def ajuda(ctx):
     )
     embed.add_field(
         name="🗑️ `!remover [Nome do Filme]`", 
-        value="Deleta permanentemente um filme de qualquer uma das suas listas.", 
+        value="Deleta permanentemente um filme de qualquer uma das suas locais.", 
         inline=False
     )
     embed.add_field(
@@ -104,9 +104,10 @@ async def ajuda(ctx):
 async def adicionar_watchlist(ctx, *, nome_do_filme: str):
     await ctx.send(f"🔍 Procurando '{nome_do_filme}' no IMDb...")
     try:
-        resultados = ia.search_movie(nome_do_filme)
+        # Força uma limpeza no texto de busca
+        resultados = ia.search_movie(nome_do_filme.strip())
         if not resultados:
-            await ctx.send("❌ Filme não encontrado no IMDb.")
+            await ctx.send("❌ Filme não encontrado no IMDb. Verifique a ortografia ou tente o nome em inglês.")
             return
         
         filme_id = resultados[0].movieID
@@ -129,7 +130,7 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
         conn.close()
     except Exception as e:
         print(f"Erro no comando adicionar: {e}")
-        await ctx.send("❌ Houve um problema ao consultar o IMDb. Tente novamente.")
+        await ctx.send("❌ Ocorreu um erro na comunicação com o IMDb. Tente novamente em alguns segundos.")
 
 
 # ---- COMANDO: MARCAR COMO VISTO (ASSISTIDO) ----
@@ -139,7 +140,7 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
-    cursor.execute("SELECT filme_id, titulo FROM listas WHERE user_id = ? AND titulo LIKE ? AND status = 'watchlist'", (user_id, f"%{nome_do_filme}%"))
+    cursor.execute("SELECT filme_id, titulo FROM listas WHERE user_id = ? AND titulo LIKE ? AND status = 'watchlist'", (user_id, f"%{nome_do_filme.strip()}%"))
     resultado = cursor.fetchone()
 
     if resultado:
@@ -150,14 +151,14 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
         conn.close()
     else:
         conn.close()
-        await ctx.send(f"🔍 Buscando '{nome_do_filme}' para registrar como visto...")
+        await ctx.send(f"🔍 Buscando '{nome_do_filme}' no IMDb para registrar...")
         try:
-            resultados = ia.search_movie(nome_do_filme)
+            resultados = ia.search_movie(nome_do_filme.strip())
             if not resultados:
                 await ctx.send("❌ Filme não encontrado no IMDb.")
                 return
             filme_id = resultados[0].movieID
-            titulo = resultados[0]['title']
+            titulo = whitespaces = resultados[0]['title']
             
             conn = sqlite3.connect('filmes.db')
             cursor = conn.cursor()
@@ -176,8 +177,7 @@ async def remover_filme(ctx, *, nome_do_filme: str):
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
-    # Busca por correspondência aproximada do título na lista do usuário
-    cursor.execute("SELECT filme_id, titulo, status FROM listas WHERE user_id = ? AND titulo LIKE ?", (user_id, f"%{nome_do_filme}%"))
+    cursor.execute("SELECT filme_id, titulo, status FROM listas WHERE user_id = ? AND titulo LIKE ?", (user_id, f"%{nome_do_filme.strip()}%"))
     resultado = cursor.fetchone()
 
     if resultado:
@@ -247,12 +247,11 @@ async def dar_dica(ctx):
                 continue
 
     try:
-        # Tenta buscar os filmes populares do IMDb
         filmes_em_alta = ia.get_popular100_movies()
         
-        if contagem_generos and Set(contagem_generos.values()):
+        if contagem_generos and len(contagem_generos) > 0:
             genero_favorito_do_momento = max(contagem_generos, key=contagem_generos.get)
-            amostra_trends = random.sample(filmes_em_alta, 20)
+            amostra_trends = random.sample(filmes_em_alta, min(20, len(filmes_em_alta)))
             filmes_compativeis = []
             
             for f in amostra_trends:
@@ -281,7 +280,6 @@ async def dar_dica(ctx):
 
     except Exception as e:
         print(f"Erro de conexão com a API do IMDb, usando plano de contingência: {e}")
-        # LISTA DE CONTINGÊNCIA: Se a API falhar ou der timeout, o bot não falha e entrega um clássico aclamado
         ids_classicos = ['0111161', '0068646', '0468569', '0137523', '0109830', '0133093', '0110912', '0050813', '0816692', '0167260']
         id_escolhido = random.choice(ids_classicos)
         try:
