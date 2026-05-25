@@ -11,7 +11,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.remove_command('help') 
 
-# Inicializa o Cinemagoer injetando cabeçalhos de um navegador real para evitar bloqueios
+# Inicializa o Cinemagoer injetando cabeçalhos para evitar bloqueios do IMDb
 ia = Cinemagoer(headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
 
 # ---- CONFIGURAÇÃO DO BANCO DE DADOS ----
@@ -82,7 +82,7 @@ async def ajuda(ctx):
     )
     embed.add_field(
         name="🗑️ `!remover [Nome do Filme]`", 
-        value="Deleta permanentemente um filme de qualquer uma das suas locais.", 
+        value="Deleta permanentemente um filme de qualquer uma das suas listas.", 
         inline=False
     )
     embed.add_field(
@@ -104,7 +104,6 @@ async def ajuda(ctx):
 async def adicionar_watchlist(ctx, *, nome_do_filme: str):
     await ctx.send(f"🔍 Procurando '{nome_do_filme}' no IMDb...")
     try:
-        # Força uma limpeza no texto de busca
         resultados = ia.search_movie(nome_do_filme.strip())
         if not resultados:
             await ctx.send("❌ Filme não encontrado no IMDb. Verifique a ortografia ou tente o nome em inglês.")
@@ -130,7 +129,7 @@ async def adicionar_watchlist(ctx, *, nome_do_filme: str):
         conn.close()
     except Exception as e:
         print(f"Erro no comando adicionar: {e}")
-        await ctx.send("❌ Ocorreu um erro na comunicação com o IMDb. Tente novamente em alguns segundos.")
+        await ctx.send("❌ Ocorreu um erro na comunicação com o IMDb. Tente novamente.")
 
 
 # ---- COMANDO: MARCAR COMO VISTO (ASSISTIDO) ----
@@ -158,7 +157,7 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
                 await ctx.send("❌ Filme não encontrado no IMDb.")
                 return
             filme_id = resultados[0].movieID
-            titulo = whitespaces = resultados[0]['title']
+            titulo = resultados[0]['title']
             
             conn = sqlite3.connect('filmes.db')
             cursor = conn.cursor()
