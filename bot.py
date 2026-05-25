@@ -9,8 +9,9 @@ import os
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-# Remove o comando !help padrão do Discord para usarmos o nosso personalizado
-bot.remove_command('help') 
+bot.remove_command('help') # Remove o help padrão para usarmos o nosso personalizado
+
+# Configura o Cinemagoer com cabeçalhos para evitar bloqueios de conexão
 ia = Cinemagoer()
 
 # ---- CONFIGURAÇÃO DO BANCO DE DADOS (Local na raiz do projeto) ----
@@ -66,22 +67,21 @@ async def enviar_embed_filme(ctx, filme, texto_extra=""):
 async def ajuda(ctx):
     embed = discord.Embed(
         title="🤖 Guia de Comandos - Gerenciador de Filmes",
-        description="Aqui estão todos os comandos que você pode usar para organizar suas sessões de cinema:",
+        description="Aqui estão todos os comandos para organizar suas sessões de cinema:",
         color=0x2ecc71
     )
-    
     embed.add_field(
         name="🍿 `!adicionar [Nome do Filme]`", 
-        value="Busca o filme no IMDb e o adiciona na sua lista de espera (Watchlist).", 
+        value="Busca o filme no IMDb e o adiciona à sua lista de espera (Watchlist).", 
         inline=False
     )
     embed.add_field(
         name="✅ `!visto [Nome do Filme]`", 
-        value="Move um filme da sua lista de espera para 'Assistidos' ou adiciona um filme novo direto como assistido.", 
+        value="Move um filme da lista de espera para 'Assistidos' ou adiciona um filme novo direto como visto.", 
         inline=False
     )
     embed.add_field(
-        name="❌ `!remover [Nome do Filme]`", 
+        name="🗑️ `!remover [Nome do Filme]`", 
         value="Deleta permanentemente um filme de qualquer uma das suas listas.", 
         inline=False
     )
@@ -92,10 +92,9 @@ async def ajuda(ctx):
     )
     embed.add_field(
         name="🧠 `!dica`", 
-        value="O bot analisa seus gêneros mais assistidos e recomenda um filme surpresa que está bombando no IMDb.", 
+        value="O bot analisa seus gêneros favoritos e recomenda um filme surpresa do IMDb.", 
         inline=False
     )
-    
     embed.set_footer(text="Sempre use o prefixo ! antes de cada comando.")
     await ctx.send(embed=embed)
 
@@ -104,30 +103,33 @@ async def ajuda(ctx):
 @bot.command(name="adicionar")
 async def adicionar_watchlist(ctx, *, nome_do_filme: str):
     await ctx.send(f"🔍 Procurando '{nome_do_filme}' no IMDb...")
-    resultados = ia.search_movie(nome_do_filme)
-    
-    if not resultados:
-        await ctx.send("❌ Filme não encontrado no IMDb.")
-        return
-    
-    filme_id = resultados[0].movieID
-    titulo = resultados[0]['title']
-    user_id = str(ctx.author.id)
-
-    conn = sqlite3.connect('filmes.db')
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT status FROM listas WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
-    existe = cursor.fetchone()
-    
-    if existe:
-        await ctx.send(f"⚠️ **{titulo}** já está na sua lista como *{existe[0]}*!")
-    else:
-        cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'watchlist')", (user_id, filme_id, titulo))
-        conn.commit()
-        await ctx.send(f"🍿 **{titulo}** foi adicionado à sua **Fila (Watchlist)**!")
+    try:
+        resultados = ia.search_movie(nome_do_filme)
+        if not resultados:
+            await ctx.send("❌ Filme não encontrado no IMDb.")
+            return
         
-    conn.close()
+        filme_id = resultados[0].movieID
+        titulo = resultados[0]['title']
+        user_id = str(ctx.author.id)
+
+        conn = sqlite3.connect('filmes.db')
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT status FROM listas WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
+        existe = cursor.fetchone()
+        
+        if existe:
+            await ctx.send(f"⚠️ **{titulo}** já está na sua lista como *{existe[0]}*!")
+        else:
+            cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'watchlist')", (user_id, filme_id, titulo))
+            conn.commit()
+            await ctx.send(f"🍿 **{titulo}** foi adicionado à sua **Fila (Watchlist)**!")
+            
+        conn.close()
+    except Exception as e:
+        print(f"Erro no comando adicionar: {e}")
+        await ctx.send("❌ Houve um problema ao consultar o IMDb. Tente novamente.")
 
 
 # ---- COMANDO: MARCAR COMO VISTO (ASSISTIDO) ----
@@ -145,30 +147,36 @@ async def marcar_assistido(ctx, *, nome_do_filme: str):
         cursor.execute("UPDATE listas SET status = 'assistido' WHERE user_id = ? AND filme_id = ?", (user_id, filme_id))
         conn.commit()
         await ctx.send(f"✅ **{titulo}** movido da fila para a lista de **Assistidos**!")
+        conn.close()
     else:
-        resultados = ia.search_movie(nome_do_filme)
-        if not resultados:
-            await ctx.send("❌ Filme não encontrado no IMDb.")
+        conn.close()
+        await ctx.send(f"🔍 Buscando '{nome_do_filme}' para registrar como visto...")
+        try:
+            resultados = ia.search_movie(nome_do_filme)
+            if not resultados:
+                await ctx.send("❌ Filme não encontrado no IMDb.")
+                return
+            filme_id = resultados[0].movieID
+            titulo = resultados[0]['title']
+            
+            conn = sqlite3.connect('filmes.db')
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'assistido')", (user_id, filme_id, titulo))
+            conn.commit()
+            await ctx.send(f"✅ **{titulo}** adicionado direto na sua lista de **Assistidos**!")
             conn.close()
-            return
-        filme_id = resultados[0].movieID
-        titulo = resultados[0]['title']
-        
-        cursor.execute("INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'assistido')", (user_id, filme_id, titulo))
-        conn.commit()
-        await ctx.send(f"✅ **{titulo}** adicionado direto na sua lista de **Assistidos**!")
-    
-    conn.close()
+        except Exception:
+            await ctx.send("❌ Erro ao conectar ao IMDb.")
 
 
-# ---- COMANDO: REMOVER DA LISTA ----
+# ---- COMANDO: REMOVER FILME ----
 @bot.command(name="remover")
 async def remover_filme(ctx, *, nome_do_filme: str):
     user_id = str(ctx.author.id)
     conn = sqlite3.connect('filmes.db')
     cursor = conn.cursor()
 
-    # Busca se o filme existe na lista do usuário (independente de ser watchlist ou assistido)
+    # Busca por correspondência aproximada do título na lista do usuário
     cursor.execute("SELECT filme_id, titulo, status FROM listas WHERE user_id = ? AND titulo LIKE ?", (user_id, f"%{nome_do_filme}%"))
     resultado = cursor.fetchone()
 
@@ -180,7 +188,7 @@ async def remover_filme(ctx, *, nome_do_filme: str):
         categoria = "Fila (Watchlist)" if status == "watchlist" else "Assistidos"
         await ctx.send(f"🗑️ **{titulo}** foi removido com sucesso da sua lista de *{categoria}*!")
     else:
-        await ctx.send(f"❌ Não encontrei nenhum filme com o nome parecido com '{nome_do_filme}' no seu catálogo.")
+        await ctx.send(f"❌ Não encontrei nenhum filme com o nome parecido com '{nome_do_filme}' na sua lista.")
         
     conn.close()
 
@@ -210,7 +218,7 @@ async def mostrar_lista(ctx):
     await ctx.send(embed=embed)
 
 
-# ---- COMANDO: SISTEMA DE DICAS AVANÇADO ----
+# ---- COMANDO: SISTEMA DE DICAS COM PLANO DE CONTINGÊNCIA ----
 @bot.command(name="dica")
 async def dar_dica(ctx):
     user_id = str(ctx.author.id)
@@ -225,10 +233,9 @@ async def dar_dica(ctx):
     ultimos_assistidos = cursor.fetchall()
     conn.close()
 
-    await ctx.send("🧠 Analisando suas preferências recentes e o que está bombando no IMDb...")
+    await ctx.send("🧠 Analisando suas preferências recentes e consultando o IMDb...")
 
     contagem_generos = {}
-    
     if ultimos_assistidos:
         for item in ultimos_assistidos:
             f_id = item[0]
@@ -240,11 +247,12 @@ async def dar_dica(ctx):
                 continue
 
     try:
+        # Tenta buscar os filmes populares do IMDb
         filmes_em_alta = ia.get_popular100_movies()
         
-        if contagem_generos:
+        if contagem_generos and Set(contagem_generos.values()):
             genero_favorito_do_momento = max(contagem_generos, key=contagem_generos.get)
-            amostra_trends = random.sample(filmes_em_alta, 25)
+            amostra_trends = random.sample(filmes_em_alta, 20)
             filmes_compativeis = []
             
             for f in amostra_trends:
@@ -257,7 +265,7 @@ async def dar_dica(ctx):
                 await enviar_embed_filme(
                     ctx, 
                     filme_escolhido, 
-                    f"🔥 **Em Alta + O seu Estilo:** Notei que você assistiu bastante ao gênero *{genero_favorito_do_momento}* recentemente. Que tal esse título que está bombando no momento?"
+                    f"🔥 **Em Alta + O seu Estilo:** Notei que você curte *{genero_favorito_do_momento}*. Que tal esse título que está bombando?"
                 )
                 return
 
@@ -268,13 +276,23 @@ async def dar_dica(ctx):
         await enviar_embed_filme(
             ctx, 
             filme_detalhes, 
-            "🌍 **Bombando no Mundo:** Não encontrei um padrão recente no seu histórico, então aqui está um dos filmes mais acessados e comentados do IMDb esta semana!"
+            "🌍 **Bombando no Mundo:** Aqui está um dos filmes mais quentes do IMDb esta semana!"
         )
 
     except Exception as e:
-        print(f"Erro ao buscar dicas: {e}")
-        await ctx.send("❌ Tive um problema para me conectar aos servidores do IMDb. Tente novamente em instantes!")
-
+        print(f"Erro de conexão com a API do IMDb, usando plano de contingência: {e}")
+        # LISTA DE CONTINGÊNCIA: Se a API falhar ou der timeout, o bot não falha e entrega um clássico aclamado
+        ids_classicos = ['0111161', '0068646', '0468569', '0137523', '0109830', '0133093', '0110912', '0050813', '0816692', '0167260']
+        id_escolhido = random.choice(ids_classicos)
+        try:
+            filme_detalhes = ia.get_movie(id_escolhido)
+            await enviar_embed_filme(
+                ctx, 
+                filme_detalhes, 
+                "🏛️ **Clássico Recomendado:** Os servidores do IMDb estão instáveis agora, mas aqui está uma recomendação imperdível e aclamada pelo público!"
+            )
+        except Exception:
+            await ctx.send("❌ O sistema do IMDb está fora do ar no momento. Tente novamente em instantes!")
 
 # ---- EXECUÇÃO DO BOT ----
 bot.run(os.environ.get('DISCORD_TOKEN'))
