@@ -24,6 +24,67 @@ FILMES_POOL = [
 ]
 
 
+JW_GRAPHQL = 'https://apis.justwatch.com/graphql'
+JW_QUERY = (
+    '{ popularTitles(country: BR, first: 3,'
+    ' filter: {searchQuery: "%s", objectTypes: [MOVIE]}) {'
+    ' edges { node { __typename ... on Movie {'
+    ' content(country: BR, language: "pt") { title fullPath }'
+    ' offers(country: BR, platform: WEB) {'
+    ' monetizationType package { clearName icon } deeplinkURL(platform: WEB)'
+    ' } } } } } }'
+)
+
+
+def get_streaming(title: str, year: str) -> list:
+    """Busca serviços de streaming no Brasil via JustWatch GraphQL."""
+    key = f'jw:{title}:{year}'
+    now = time.time()
+    if key in _cache and now - _cache[key][1] < _TTL:
+        return _cache[key][0]
+    try:
+        safe_title = title.replace('"', '\\"')
+        r = requests.post(
+            JW_GRAPHQL,
+            json={'query': JW_QUERY % safe_title},
+            headers={'User-Agent': 'JustWatch/4.0 (Android)', 'Content-Type': 'application/json'},
+            timeout=8,
+        )
+        if not r.ok:
+            return []
+        edges = (r.json().get('data') or {}).get('popularTitles', {}).get('edges', [])
+        for edge in edges:
+            node = edge.get('node', {})
+            if node.get('__typename') != 'Movie':
+                continue
+            content = node.get('content', {})
+            seen, result = set(), []
+            for o in (node.get('offers') or []):
+                if o.get('monetizationType') != 'FLATRATE':
+                    continue
+                pkg  = o.get('package', {})
+                name = pkg.get('clearName', '')
+                if name in seen:
+                    continue
+                seen.add(name)
+                icon = pkg.get('icon', '')
+                logo = ('https://www.justwatch.com' +
+                        icon.replace('{profile}', 's100').replace('{format}', 'webp'))
+                result.append({
+                    'nome': name,
+                    'logo': logo,
+                    'url':  o.get('deeplinkURL', ''),
+                })
+            if result:
+                _cache[key] = (result, now)
+                return result
+    except Exception as e:
+        print(f'JustWatch error: {e}')
+    empty: list = []
+    _cache[key] = (empty, now)
+    return empty
+
+
 def omdb_fetch(imdb_id: str):
     """Busca detalhes no OMDB com cache em memória."""
     if not OMDB_KEY:
@@ -110,7 +171,10 @@ def get_movie(imdb_id: str):
     data = omdb_fetch(imdb_id)
     if not data:
         return None
-    return _parse_movie(imdb_id, data)
+    movie = _parse_movie(imdb_id, data)
+    if movie:
+        movie['streaming'] = get_streaming(movie['titulo'], movie['ano'])
+    return movie
 
 
 def _get_db_rows():
