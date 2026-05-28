@@ -4,144 +4,244 @@
 
 {% block content %}
 
-<!-- ── HERO ──────────────────────────────────────────────────── -->
-<div class="film-hero" {% if filme.poster %}style="--bd:url('{{ filme.poster }}')"{% endif %}>
-  <div class="film-hero-inner container">
+{# ── HERO ─────────────────────────────────────────────────── #}
+<div class="lbd-hero" {% if filme.poster %}style="--bd:url('{{ filme.poster }}')"{% endif %}>
+  <div class="lbd-hero__inner container">
 
-    <!-- Poster -->
-    <div class="film-poster-col">
+    {# Poster #}
+    <div class="lbd-poster">
       {% if filme.poster %}
-      <img class="film-poster-img" src="{{ filme.poster }}" alt="{{ filme.titulo }}" />
+        <img src="{{ filme.poster }}" alt="{{ filme.titulo }}" class="lbd-poster__img" />
       {% else %}
-      <div class="film-poster-empty">{{ filme.titulo[0] }}</div>
+        <div class="lbd-poster__empty">{{ filme.titulo[0] }}</div>
       {% endif %}
-
-      <!-- Trailer button -->
-      <button class="trailer-btn"
-              data-title="{{ filme.titulo }}"
-              data-year="{{ filme.ano }}">
-        <span class="trailer-icon">&#9654;</span> Assistir Trailer
-      </button>
     </div>
 
-    <!-- Info -->
-    <div class="film-info-col">
-      <h1 class="film-title">{{ filme.titulo }}</h1>
+    {# Film info #}
+    <div class="lbd-details">
 
-      <div class="film-meta-row">
-        {% if filme.ano    %}<span class="meta-chip">{{ filme.ano }}</span>{% endif %}
-        {% if filme.rated  %}<span class="meta-chip">{{ filme.rated }}</span>{% endif %}
-        {% if filme.duracao %}
-        <span class="meta-chip">{{ filme.duracao // 60 }}h {{ filme.duracao % 60 }}min</span>
-        {% endif %}
-        {% if filme.nota %}
-        <span class="meta-chip meta-rating">&#9733; {{ filme.nota }} / 10</span>
+      <h1 class="lbd-title">{{ filme.titulo }}</h1>
+
+      <div class="lbd-meta">
+        {% if filme.ano %}<span class="lbd-meta__year">{{ filme.ano }}</span>{% endif %}
+        {% if filme.diretor %}
+          <span class="lbd-meta__sep">·</span>
+          <span class="lbd-meta__dir">Directed by
+            <strong>{{ filme.diretor }}</strong>
+          </span>
         {% endif %}
       </div>
 
-      {% if filme.diretor %}
-      <p class="film-director">Dirigido por <strong>{{ filme.diretor }}</strong></p>
-      {% endif %}
-
+      {# Genre tags #}
       {% if filme.generos %}
-      <div class="film-genres">
-        {% for g in filme.generos %}<span class="genre-tag">{{ g }}</span>{% endfor %}
+      <div class="lbd-genres">
+        {% for g in filme.generos %}
+          <a class="lbd-genre-tag">{{ g }}</a>
+        {% endfor %}
       </div>
       {% endif %}
 
-      <!-- IMDb star display -->
+      {# Star rating (display-only, based on IMDb score / 2) #}
       {% if filme.nota %}
-      <div class="star-display">
+      <div class="lbd-stars" title="IMDb {{ filme.nota }}/10">
         {% set full = (filme.nota / 2) | int %}
         {% set half = 1 if (filme.nota / 2 - full) >= 0.5 else 0 %}
-        {% for i in range(full) %}<span class="star filled">&#9733;</span>{% endfor %}
-        {% if half %}<span class="star half">&#9733;</span>{% endif %}
-        {% for i in range(5 - full - half) %}<span class="star empty">&#9733;</span>{% endfor %}
-        <span class="star-votes">{{ '{:,}'.format(filme.votos) }} avaliações</span>
+        {% for i in range(full) %}<span class="lbd-star lbd-star--full">★</span>{% endfor %}
+        {% if half %}<span class="lbd-star lbd-star--half">★</span>{% endif %}
+        {% for i in range(5 - full - half) %}<span class="lbd-star lbd-star--empty">★</span>{% endfor %}
+        <span class="lbd-star-label">{{ filme.nota }}<small>/10</small>
+          &nbsp;·&nbsp; {{ '{:,}'.format(filme.votos) }} ratings</span>
       </div>
       {% endif %}
 
-      <!-- Ratings extras -->
-      {% if filme.ratings %}
-      <div class="extra-ratings">
-        {% if filme.ratings.get('Rotten Tomatoes') %}
-        <span class="rating-badge rt">🍅 {{ filme.ratings['Rotten Tomatoes'] }}</span>
+      {# Runtime + country chips #}
+      <div class="lbd-chips">
+        {% if filme.duracao %}
+          <span class="lbd-chip">{{ filme.duracao // 60 }}h {{ filme.duracao % 60 }}min</span>
         {% endif %}
-        {% if filme.ratings.get('Metacritic') %}
-        <span class="rating-badge mc">🎯 {{ filme.ratings['Metacritic'] }}</span>
+        {% if filme.rated %}
+          <span class="lbd-chip">{{ filme.rated }}</span>
+        {% endif %}
+        {% if filme.pais %}
+          <span class="lbd-chip">{{ filme.pais.split(',')[0].strip() }}</span>
         {% endif %}
       </div>
-      {% endif %}
 
-      <!-- External links -->
-      <div class="ext-links-row">
-        <a href="https://www.imdb.com/title/{{ filme.imdb_id }}/" target="_blank" rel="noopener" class="ext-btn btn-imdb">IMDb</a>
-        <a href="https://letterboxd.com/imdb/{{ filme.imdb_id }}/" target="_blank" rel="noopener" class="ext-btn btn-lb">Letterboxd</a>
-        <a href="https://www.justwatch.com/br/busca?q={{ filme.titulo | urlencode }}" target="_blank" rel="noopener" class="ext-btn btn-jw">JustWatch</a>
+      {# External links #}
+      <div class="lbd-ext-links">
+        <a href="https://www.imdb.com/title/{{ filme.imdb_id }}/"
+           target="_blank" rel="noopener" class="lbd-ext lbd-ext--imdb">IMDb</a>
+        <a href="https://letterboxd.com/imdb/{{ filme.imdb_id }}/"
+           target="_blank" rel="noopener" class="lbd-ext lbd-ext--lb">Letterboxd</a>
+        <a href="https://www.justwatch.com/br/busca?q={{ filme.titulo | urlencode }}"
+           target="_blank" rel="noopener" class="lbd-ext lbd-ext--jw">JustWatch</a>
       </div>
 
-    </div>
-  </div>
-</div>
-<!-- ── /HERO ─────────────────────────────────────────────────── -->
+    </div>{# /lbd-details #}
+  </div>{# /lbd-hero__inner #}
+</div>{# /lbd-hero #}
 
-<div class="film-body container">
 
-  <!-- Sinopse -->
-  <section class="film-section">
-    <h3 class="section-title">Sinopse</h3>
-    <p class="sinopse-text">{{ filme.sinopse }}</p>
-  </section>
+{# ── BODY (2 colunas) ─────────────────────────────────────── #}
+<div class="container lbd-body">
+  <div class="lbd-layout">
 
-  <!-- Onde assistir -->
-  <section class="film-section">
-    <h3 class="section-title">Onde Assistir no Brasil</h3>
-    <div class="justwatch-block">
-      <p class="justwatch-desc">
-        Confira no JustWatch onde <strong>{{ filme.titulo }}</strong> está disponível
-        (Netflix, Prime Video, Globoplay, Disney+, etc.).
-      </p>
-      <a class="justwatch-btn"
-         href="https://www.justwatch.com/br/busca?q={{ filme.titulo | urlencode }}"
-         target="_blank" rel="noopener">
-        🔍 Buscar no JustWatch
-      </a>
-    </div>
-  </section>
+    {# ── COLUNA PRINCIPAL ── #}
+    <main class="lbd-main">
 
-  <!-- Elenco -->
-  {% if filme.elenco %}
-  <section class="film-section">
-    <h3 class="section-title">Elenco</h3>
-    <div class="cast-list">
-      {% for c in filme.elenco %}
-      <span class="cast-name-chip">{{ c.nome }}</span>
-      {% endfor %}
-    </div>
-  </section>
-  {% endif %}
-
-  <!-- Informações adicionais -->
-  <section class="film-section">
-    <h3 class="section-title">Informações</h3>
-    <dl class="info-dl">
-      {% if filme.diretor %}
-      <dt>Direção</dt><dd>{{ filme.diretor }}</dd>
+      {# Synopsis #}
+      {% if filme.sinopse %}
+      <section class="lbd-section">
+        <p class="lbd-synopsis">{{ filme.sinopse }}</p>
+      </section>
       {% endif %}
-      {% if filme.generos %}
-      <dt>Gênero</dt><dd>{{ filme.generos | join(', ') }}</dd>
-      {% endif %}
-      {% if filme.ano %}
-      <dt>Ano</dt><dd>{{ filme.ano }}</dd>
-      {% endif %}
-      {% if filme.duracao %}
-      <dt>Duração</dt><dd>{{ filme.duracao // 60 }}h {{ filme.duracao % 60 }}min</dd>
-      {% endif %}
-      {% if filme.pais %}
-      <dt>País</dt><dd>{{ filme.pais }}</dd>
-      {% endif %}
-    </dl>
-  </section>
 
-</div>
+      {# Cast #}
+      {% if filme.elenco %}
+      <section class="lbd-section">
+        <h3 class="lbd-section__title">Elenco</h3>
+        <ul class="lbd-cast">
+          {% for c in filme.elenco %}
+          <li class="lbd-cast__item">
+            <span class="lbd-cast__name">{{ c.nome }}</span>
+            {% if c.personagem and c.personagem != '' %}
+              <span class="lbd-cast__role">{{ c.personagem }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {# Details table #}
+      <section class="lbd-section">
+        <h3 class="lbd-section__title">Detalhes</h3>
+        <dl class="lbd-info-table">
+          {% if filme.diretor %}
+          <div class="lbd-info-row">
+            <dt>Direção</dt>
+            <dd>{{ filme.diretor }}</dd>
+          </div>
+          {% endif %}
+          {% if filme.generos %}
+          <div class="lbd-info-row">
+            <dt>Gênero</dt>
+            <dd>{{ filme.generos | join(', ') }}</dd>
+          </div>
+          {% endif %}
+          {% if filme.ano %}
+          <div class="lbd-info-row">
+            <dt>Ano</dt>
+            <dd>{{ filme.ano }}</dd>
+          </div>
+          {% endif %}
+          {% if filme.duracao %}
+          <div class="lbd-info-row">
+            <dt>Duração</dt>
+            <dd>{{ filme.duracao // 60 }}h {{ filme.duracao % 60 }}min</dd>
+          </div>
+          {% endif %}
+          {% if filme.pais %}
+          <div class="lbd-info-row">
+            <dt>País</dt>
+            <dd>{{ filme.pais }}</dd>
+          </div>
+          {% endif %}
+          {% if filme.rated and filme.rated != 'N/A' %}
+          <div class="lbd-info-row">
+            <dt>Classificação</dt>
+            <dd>{{ filme.rated }}</dd>
+          </div>
+          {% endif %}
+        </dl>
+      </section>
+
+    </main>{# /lbd-main #}
+
+
+    {# ── SIDEBAR ── #}
+    <aside class="lbd-sidebar">
+
+      {# Trailer — click-to-load embed #}
+      <div class="lbd-trailer-wrap">
+        <div class="lbd-trailer-thumb"
+             data-title="{{ filme.titulo }}"
+             data-year="{{ filme.ano }}"
+             role="button" tabindex="0"
+             aria-label="Assistir trailer de {{ filme.titulo }}">
+          {% if filme.poster %}
+            <img src="{{ filme.poster }}" alt="Trailer {{ filme.titulo }}" class="lbd-trailer-bg" />
+          {% endif %}
+          <div class="lbd-trailer-overlay">
+            <div class="lbd-play-btn">&#9654;</div>
+            <span class="lbd-play-label">Assistir Trailer</span>
+          </div>
+        </div>
+      </div>
+
+      {# Where to watch #}
+      <div class="lbd-sidebar-block">
+        <h4 class="lbd-sidebar-title">Onde Assistir</h4>
+        <p class="lbd-sidebar-text">Confira a disponibilidade no Brasil em tempo real.</p>
+        <a class="lbd-jw-btn"
+           href="https://www.justwatch.com/br/busca?q={{ filme.titulo | urlencode }}"
+           target="_blank" rel="noopener">
+          Buscar no JustWatch &#8599;
+        </a>
+      </div>
+
+      {# Ratings #}
+      {% if filme.ratings or filme.nota %}
+      <div class="lbd-sidebar-block">
+        <h4 class="lbd-sidebar-title">Avaliações</h4>
+        <ul class="lbd-ratings-list">
+          {% if filme.nota %}
+          <li class="lbd-rating-item">
+            <span class="lbd-rating-source">IMDb</span>
+            <span class="lbd-rating-value lbd-rating-value--imdb">{{ filme.nota }}<small>/10</small></span>
+          </li>
+          {% endif %}
+          {% if filme.ratings.get('Rotten Tomatoes') %}
+          <li class="lbd-rating-item">
+            <span class="lbd-rating-source">Rotten Tomatoes</span>
+            <span class="lbd-rating-value lbd-rating-value--rt">{{ filme.ratings['Rotten Tomatoes'] }}</span>
+          </li>
+          {% endif %}
+          {% if filme.ratings.get('Metacritic') %}
+          <li class="lbd-rating-item">
+            <span class="lbd-rating-source">Metacritic</span>
+            <span class="lbd-rating-value lbd-rating-value--mc">{{ filme.ratings['Metacritic'] }}</span>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+      {% endif %}
+
+    </aside>{# /lbd-sidebar #}
+
+  </div>{# /lbd-layout #}
+</div>{# /container lbd-body #}
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+  /* Trailer click-to-load */
+  document.querySelectorAll('.lbd-trailer-thumb').forEach(el => {
+    const load = () => {
+      const q = encodeURIComponent(
+        `${el.dataset.title} ${el.dataset.year} trailer legendado português`
+      );
+      const iframe = document.createElement('iframe');
+      iframe.src = `https://www.youtube.com/embed?listType=search&list=${q}&autoplay=1`;
+      iframe.allow = 'autoplay; encrypted-media; fullscreen';
+      iframe.allowFullscreen = true;
+      iframe.className = 'lbd-trailer-iframe';
+      el.replaceWith(iframe);
+    };
+    el.addEventListener('click', load);
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') load(); });
+  });
+</script>
 {% endblock %}
