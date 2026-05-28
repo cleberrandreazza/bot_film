@@ -1,5 +1,4 @@
 from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for
-from dotenv import load_dotenv
 import sqlite3
 import requests
 import re
@@ -8,7 +7,13 @@ import time
 import random
 import urllib.parse
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
