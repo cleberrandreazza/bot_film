@@ -1,34 +1,12 @@
-/* ── Trailer Modal ─────────────────────────────────────────── */
-const modal    = document.getElementById('trailer-modal');
-const iframe   = document.getElementById('trailer-iframe');
-const closeBtn = document.getElementById('modal-close');
-const backdrop = document.getElementById('modal-backdrop');
-
-function openTrailerSearch(title, year) {
-  // YouTube search embed — não requer API key
-  const q = encodeURIComponent(`${title} ${year} trailer legendado português`);
-  iframe.src = `https://www.youtube.com/embed?listType=search&list=${q}`;
-  modal.classList.add('open');
-  modal.setAttribute('aria-hidden', 'false');
-  document.body.style.overflow = 'hidden';
-}
-
-function closeModal() {
-  modal.classList.remove('open');
-  modal.setAttribute('aria-hidden', 'true');
-  iframe.src = '';
-  document.body.style.overflow = '';
-}
-
+/* ── Trailer — abre YouTube em nova aba ────────────────────── */
 document.querySelectorAll('.trailer-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    openTrailerSearch(btn.dataset.title, btn.dataset.year);
+    const q = encodeURIComponent(
+      `${btn.dataset.title} ${btn.dataset.year} trailer legendado português`
+    );
+    window.open(`https://www.youtube.com/results?search_query=${q}`, '_blank', 'noopener');
   });
 });
-
-closeBtn  && closeBtn.addEventListener('click', closeModal);
-backdrop  && backdrop.addEventListener('click', closeModal);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 /* ── Async poster loading (watchlist + assistidos cards) ─── */
 document.addEventListener('DOMContentLoaded', () => {

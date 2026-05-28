@@ -68,7 +68,7 @@ def get_streaming(title: str, year: str) -> list:
                     continue
                 seen.add(name)
                 icon = pkg.get('icon', '')
-                logo = ('https://www.justwatch.com' +
+                logo = ('https://images.justwatch.com' +
                         icon.replace('{profile}', 's100').replace('{format}', 'webp'))
                 result.append({
                     'nome': name,
