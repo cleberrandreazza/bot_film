@@ -27,10 +27,13 @@
     <div class="section-header">
       <h2><span class="pill pill--green">Na Fila</span></h2>
       <span class="section-count">{{ watchlist | length }} filmes</span>
+      {% if watchlist | length > 6 %}
+      <a href="/filmes/fila" class="ver-todos-btn">Ver Todos ›</a>
+      {% endif %}
     </div>
     {% if watchlist %}
-    <div class="films-scroll">
-      {% for f in watchlist %}
+    <div class="films-grid films-grid--6">
+      {% for f in watchlist[:6] %}
       <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
         <div class="poster-wrap">
           <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
@@ -55,10 +58,13 @@
     <div class="section-header">
       <h2><span class="pill pill--blue">Já Vistos</span></h2>
       <span class="section-count">{{ assistidos | length }} filmes</span>
+      {% if assistidos | length > 6 %}
+      <a href="/filmes/vistos" class="ver-todos-btn">Ver Todos ›</a>
+      {% endif %}
     </div>
     {% if assistidos %}
-    <div class="films-grid">
-      {% for f in assistidos %}
+    <div class="films-grid films-grid--6">
+      {% for f in assistidos[:6] %}
       <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
         <div class="poster-wrap">
           <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
@@ -84,8 +90,9 @@
     <div class="section-header">
       <h2><span class="pill pill--orange">Destaques</span></h2>
       <span class="section-count">filmes aclamados para descobrir</span>
+      <a href="/filmes/destaques" class="ver-todos-btn">Ver Todos ›</a>
     </div>
-    <div class="films-grid">
+    <div class="films-grid films-grid--6">
       {% for f in destaques %}
       <a href="/filme/{{ f.imdb_id }}" class="film-card">
         <div class="poster-wrap">

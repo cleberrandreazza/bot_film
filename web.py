@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, abort
+from flask import Flask, render_template, jsonify, abort, request
 import sqlite3
 import requests
 import re
@@ -297,6 +297,9 @@ def get_movie(imdb_id: str):
     return movie
 
 
+PER_PAGE = 12
+
+
 def _get_db_rows():
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -309,27 +312,50 @@ def _get_db_rows():
         return [], []
 
 
-def _pool_destaques(n=12):
-    """Sorteia N filmes do pool e retorna dados básicos (poster, título, ano)."""
-    ids = random.sample(FILMES_POOL, min(n, len(FILMES_POOL)))
-    result = []
-    for iid in ids:
-        data = omdb_fetch(iid)
-        if not data:
-            continue
-        poster = data.get('Poster', '')
-        if poster and poster != 'N/A':
-            poster = poster.replace('_SX300.jpg', '_SX500.jpg')
-        else:
-            poster = ''
-        result.append({
-            'imdb_id': iid,
-            'titulo':  data.get('Title', ''),
-            'poster':  poster,
-            'ano':     (data.get('Year') or '')[:4],
-            'nota':    data.get('imdbRating', ''),
-        })
+def _get_db_page(status: str, page: int):
+    """Retorna (rows, total) paginado para uma seção do DB."""
+    offset = (page - 1) * PER_PAGE
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        total = conn.execute("SELECT COUNT(*) FROM listas WHERE status=?", (status,)).fetchone()[0]
+        rows  = conn.execute(
+            "SELECT * FROM listas WHERE status=? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (status, PER_PAGE, offset)
+        ).fetchall()
+        conn.close()
+        return list(rows), total
+    except Exception:
+        return [], 0
+
+
+def _omdb_basic(iid: str) -> dict | None:
+    data = omdb_fetch(iid)
+    if not data:
+        return None
+    poster = data.get('Poster', '')
+    if poster and poster != 'N/A':
+        poster = poster.replace('_SX300.jpg', '_SX500.jpg')
+    else:
+        poster = ''
+    return {'imdb_id': iid, 'titulo': data.get('Title', ''),
+            'poster': poster, 'ano': (data.get('Year') or '')[:4],
+            'nota': data.get('imdbRating', '')}
+
+
+def _pool_destaques(n=6):
+    """Retorna N filmes aleatórios do pool (para a home)."""
+    ids    = random.sample(FILMES_POOL, min(n, len(FILMES_POOL)))
+    result = [r for iid in ids if (r := _omdb_basic(iid))]
     return result
+
+
+def _pool_page(page: int):
+    """Retorna (filmes, total) do pool paginado (para /filmes/destaques)."""
+    start = (page - 1) * PER_PAGE
+    ids   = FILMES_POOL[start:start + PER_PAGE]
+    result = [r for iid in ids if (r := _omdb_basic(iid))]
+    return result, len(FILMES_POOL)
 
 
 # ─────────────────────────────────────────────── routes ──
@@ -350,6 +376,34 @@ def filme_page(imdb_id):
     if not info:
         abort(404)
     return render_template('filme.html', filme=info)
+
+
+SECOES = {
+    'fila':       ('watchlist',  'Na Fila',    '#fila'),
+    'vistos':     ('assistido',  'Já Vistos',  '#vistos'),
+    'destaques':  (None,         'Destaques',  '#popular'),
+}
+
+@app.route('/filmes/<secao>')
+def lista_completa(secao):
+    if secao not in SECOES:
+        abort(404)
+    page  = max(1, int(request.args.get('page', 1)))
+    status, titulo, _ = SECOES[secao]
+
+    if secao == 'destaques':
+        filmes, total = _pool_page(page)
+        is_db = False
+    else:
+        rows, total = _get_db_page(status, page)
+        filmes = rows
+        is_db  = True
+
+    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    return render_template('lista.html',
+                           filmes=filmes, secao=secao, titulo=titulo,
+                           page=page, total_pages=total_pages,
+                           total=total, is_db=is_db)
 
 
 @app.route('/api/filme/<imdb_id>')

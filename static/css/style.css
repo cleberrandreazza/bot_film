@@ -92,11 +92,70 @@ code {
 .pill--orange { background: rgba(233,163,25,.15);  color: var(--orange); }
 .empty-state  { color: var(--text-lo); font-style: italic; padding: 20px 0; }
 
+/* ── VER TODOS button ───────────────────────────────────────────────────── */
+.ver-todos-btn {
+  margin-left: auto;
+  color: var(--green); font-size: 13px; font-weight: 700;
+  padding: 4px 12px; border-radius: 20px;
+  border: 1px solid rgba(0,224,84,.35);
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.ver-todos-btn:hover { background: var(--green); color: #000; }
+
+/* ── LISTA PAGE ─────────────────────────────────────────────────────────── */
+.lista-page { padding: 40px 24px 80px; }
+
+.lista-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 28px; flex-wrap: wrap; gap: 12px;
+}
+.lista-header__left { display: flex; align-items: center; gap: 20px; }
+.lista-back {
+  color: var(--text-lo); font-size: 13px; font-weight: 600;
+  transition: color .15s;
+}
+.lista-back:hover { color: var(--text-hi); }
+.lista-titulo { color: var(--text-hi); font-size: 26px; font-weight: 700; }
+.lista-total  { color: var(--text-lo); font-size: 14px; }
+
+/* ── PAGINATION ─────────────────────────────────────────────────────────── */
+.pagination {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; margin-top: 48px; flex-wrap: wrap;
+}
+
+.page-btn {
+  color: var(--text); font-size: 13px; font-weight: 700;
+  padding: 7px 16px; border-radius: var(--radius);
+  border: 1px solid var(--bg3);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.page-btn:hover          { background: var(--bg3); color: var(--text-hi); }
+.page-btn--disabled      { opacity: .35; cursor: default; pointer-events: none; }
+
+.page-numbers { display: flex; align-items: center; gap: 4px; }
+
+.page-num {
+  min-width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius); font-size: 13px; font-weight: 600;
+  color: var(--text); border: 1px solid transparent;
+  transition: background .15s, color .15s;
+}
+.page-num:hover       { background: var(--bg3); color: var(--text-hi); }
+.page-num--active     { background: var(--green); color: #000; font-weight: 700; }
+.page-ellipsis        { color: var(--text-lo); padding: 0 4px; }
+
 /* ── FILM CARDS (index) ─────────────────────────────────────────────────── */
 .films-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
   gap: 12px;
+}
+/* Fixed 6-column grid used on home and lista pages */
+.films-grid--6 {
+  grid-template-columns: repeat(6, 1fr);
 }
 .films-scroll {
   display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px;
@@ -484,9 +543,13 @@ code {
 .similar-card:hover .similar-card__title { color: var(--text-hi); }
 
 /* ── RESPONSIVE ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .films-grid--6 { grid-template-columns: repeat(4, 1fr); }
+}
 @media (max-width: 820px) {
-  .similar-grid { grid-template-columns: repeat(3, 1fr); }
-  .lbd-layout { grid-template-columns: 1fr; }
+  .films-grid--6 { grid-template-columns: repeat(3, 1fr); }
+  .similar-grid  { grid-template-columns: repeat(3, 1fr); }
+  .lbd-layout    { grid-template-columns: 1fr; }
   .lbd-sidebar { position: static; border-top: 1px solid var(--bg2); padding-top: 28px; }
   .lbd-hero__inner { flex-direction: column; align-items: flex-start; gap: 24px; padding-top: 36px; padding-bottom: 28px; }
   .lbd-poster { align-self: auto; margin-bottom: 0; }

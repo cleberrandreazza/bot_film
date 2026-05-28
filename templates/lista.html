@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ titulo }} &middot; Cinema Coletivo{% endblock %}
+
+{% block content %}
+<div class="lista-page container">
+
+  <!-- Cabeçalho -->
+  <div class="lista-header">
+    <div class="lista-header__left">
+      <a href="/" class="lista-back">&#8592; Início</a>
+      <h1 class="lista-titulo">{{ titulo }}</h1>
+    </div>
+    <span class="lista-total">{{ total }} filmes</span>
+  </div>
+
+  <!-- Grid -->
+  {% if filmes %}
+  <div class="films-grid films-grid--6 {% if is_db %}lista-db-grid{% endif %}">
+    {% for f in filmes %}
+      {% if is_db %}
+      <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
+        <div class="poster-wrap">
+          <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
+          <div class="poster-placeholder"><span>{{ f['titulo'] }}</span></div>
+        </div>
+        <div class="card-hover">
+          <span class="card-title">{{ f['titulo'] }}</span>
+          <span class="card-year"></span>
+        </div>
+        {% if secao == 'vistos' %}<div class="watched-tick">&#10003;</div>{% endif %}
+      </a>
+      {% else %}
+      <a href="/filme/{{ f.imdb_id }}" class="film-card">
+        <div class="poster-wrap">
+          {% if f.poster %}
+          <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f.titulo }}" loading="lazy" />
+          {% else %}
+          <div class="poster-placeholder"><span>{{ f.titulo }}</span></div>
+          {% endif %}
+        </div>
+        <div class="card-hover">
+          <span class="card-title">{{ f.titulo }}</span>
+          <span class="card-year">{{ f.ano }}</span>
+          {% if f.nota %}<span class="card-rating">&#9733; {{ f.nota }}</span>{% endif %}
+        </div>
+      </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state">Nenhum filme encontrado.</p>
+  {% endif %}
+
+  <!-- Paginação -->
+  {% if total_pages > 1 %}
+  <nav class="pagination">
+    {% if page > 1 %}
+    <a href="/filmes/{{ secao }}?page={{ page - 1 }}" class="page-btn page-btn--prev">&#8592; Anterior</a>
+    {% else %}
+    <span class="page-btn page-btn--disabled">&#8592; Anterior</span>
+    {% endif %}
+
+    <div class="page-numbers">
+      {% for p in range(1, total_pages + 1) %}
+        {% if p == page %}
+        <span class="page-num page-num--active">{{ p }}</span>
+        {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <a href="/filmes/{{ secao }}?page={{ p }}" class="page-num">{{ p }}</a>
+        {% elif p == page - 3 or p == page + 3 %}
+        <span class="page-ellipsis">…</span>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    {% if page < total_pages %}
+    <a href="/filmes/{{ secao }}?page={{ page + 1 }}" class="page-btn page-btn--next">Próximo &#8594;</a>
+    {% else %}
+    <span class="page-btn page-btn--disabled">Próximo &#8594;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+</div>
+{% endblock %}
