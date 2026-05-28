@@ -183,16 +183,30 @@ def buscar_imdb_por_id(imdb_id):
 async def _ajuda(send):
     embed = discord.Embed(
         title="🤖 Guia de Comandos — Cinema Coletivo",
-        description="Todos os comandos funcionam com `$` (prefixo) ou `/` (slash).",
+        description="Lista completa dos comandos disponíveis no bot.",
         color=0x2ecc71
     )
-    embed.add_field(name="🍿 `adicionar [filme]`", value="Busca no IMDb e adiciona o filme à fila do servidor.", inline=False)
-    embed.add_field(name="✅ `visto [filme]`",     value="Move o filme da fila para a lista de Assistidos.",    inline=False)
-    embed.add_field(name="🗑️ `remover [filme]`",  value="Remove o filme de todas as listas do servidor.",      inline=False)
-    embed.add_field(name="🎬 `lista`",             value="Exibe a fila e os filmes já assistidos.",             inline=False)
-    embed.add_field(name="🎲 `sorteio`",           value="Sorteia um filme da fila para assistir hoje.",        inline=False)
-    embed.add_field(name="🧠 `dica`",              value="Sorteia uma recomendação de filme aclamado.",         inline=False)
-    embed.set_footer(text="Use $ ou / como prefixo | Lista 100% Compartilhada")
+    embed.add_field(
+        name="💬 Comandos com `$`",
+        value=(
+            "`$ajuda` — Mostra este guia.\n"
+            "`$adicionar [filme]` — Adiciona um filme à fila.\n"
+            "`$visto [filme]` — Marca filme como assistido.\n"
+            "`$remover [filme]` — Remove filme da base.\n"
+            "`$sorteio` — Sorteia um filme da fila.\n"
+            "`$biblioteca` — Abre o site do Cine do Botecão."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🧩 Comandos Slash `/`",
+        value=(
+            "`/ajuda`, `/biblioteca`, `/adicionar`, `/visto`, `/remover`, "
+            "`/lista`, `/sorteio`, `/dica`, `/evento`"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Use o formato desejado: prefixo $ ou barra /")
     await send(embed=embed)
 
 
@@ -365,8 +379,8 @@ async def _dica(send):
 # COMANDOS DE PREFIXO ($)
 # ================================================================
 
-@bot.command(name="help")
-async def cmd_help(ctx):
+@bot.command(name="ajuda", aliases=["help"])
+async def cmd_ajuda(ctx):
     await _ajuda(ctx.send)
 
 @bot.command(name="adicionar")
@@ -381,17 +395,21 @@ async def cmd_visto(ctx, *, nome_do_filme: str):
 async def cmd_remover(ctx, *, nome_do_filme: str):
     await _remover(ctx.send, nome_do_filme)
 
-@bot.command(name="lista")
-async def cmd_lista(ctx):
-    await _lista(ctx.send)
-
 @bot.command(name="sorteio")
 async def cmd_sorteio(ctx):
     await _sorteio(ctx.send)
 
-@bot.command(name="dica")
-async def cmd_dica(ctx):
-    await _dica(ctx.send)
+@bot.command(name="biblioteca")
+async def cmd_biblioteca(ctx):
+    embed = discord.Embed(
+        title="🎬 Cine do Botecão",
+        description=f"Acesse a biblioteca completa de filmes do grupo:\n\n**[{WEB_URL}]({WEB_URL})**",
+        color=0x00e054,
+    )
+    embed.add_field(name="📋 Na Fila",        value="Filmes aguardando sessão",       inline=True)
+    embed.add_field(name="✅ Já Vistos",       value="Histórico do grupo",             inline=True)
+    embed.add_field(name="⭐ Recomendações",   value="Sugestões baseadas no histórico", inline=True)
+    await ctx.send(embed=embed)
 
 
 # ================================================================
