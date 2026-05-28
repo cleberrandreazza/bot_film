@@ -81,6 +81,45 @@ if (watchToggle) {
   });
 }
 
+/* ── Fila de Filmes (adicionar / remover) ────────────────── */
+const filaBtn = document.getElementById('fila-btn');
+
+if (filaBtn) {
+  filaBtn.addEventListener('click', async () => {
+    const imdbId = filaBtn.dataset.imdb;
+    const inFila = filaBtn.dataset.inFila === 'true';
+    filaBtn.disabled = true;
+
+    try {
+      const endpoint = inFila ? '/api/fila/remover' : '/api/fila/adicionar';
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ imdb_id: imdbId, titulo: filaBtn.dataset.titulo }),
+      });
+
+      if (r.status === 403) {
+        filaBtn.textContent = 'Você já assistiu este filme';
+        filaBtn.classList.add('fila-btn--disabled');
+        return;
+      }
+
+      const data = await r.json();
+      if (data.in_fila) {
+        filaBtn.dataset.inFila = 'true';
+        filaBtn.classList.add('fila-btn--on');
+        filaBtn.innerHTML = '&#10003; Na Fila &mdash; <span class="fila-btn__remove">Remover</span>';
+      } else {
+        filaBtn.dataset.inFila = 'false';
+        filaBtn.classList.remove('fila-btn--on');
+        filaBtn.textContent = '+ Adicionar à Fila';
+      }
+    } catch { /* noop */ } finally {
+      filaBtn.disabled = false;
+    }
+  });
+}
+
 /* ── Async poster loading (watchlist + assistidos cards) ─── */
 document.addEventListener('DOMContentLoaded', () => {
   const BATCH = 4;

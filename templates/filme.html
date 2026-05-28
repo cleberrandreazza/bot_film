@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ filme.titulo }} &middot; Cinema Coletivo{% endblock %}
+{% block title %}{{ filme.titulo }} &middot; Cine do Botecão{% endblock %}
 
 {% block content %}
 
@@ -165,6 +165,30 @@
           </div>
         {% endif %}
 
+      </div>
+
+      {# ── ADICIONAR À FILA ── #}
+      <div class="lbd-sidebar-block">
+        <div class="assistido-header">
+          <h4 class="lbd-sidebar-title">Fila de Filmes</h4>
+        </div>
+        {% if current_user and user_watched %}
+        <button class="fila-btn fila-btn--disabled" disabled>Você já assistiu este filme</button>
+        {% elif in_fila %}
+        <button id="fila-btn" class="fila-btn fila-btn--on"
+                data-imdb="{{ filme.imdb_id }}"
+                data-titulo="{{ filme.titulo }}"
+                data-in-fila="true">
+          &#10003; Na Fila &mdash; <span class="fila-btn__remove">Remover</span>
+        </button>
+        {% else %}
+        <button id="fila-btn" class="fila-btn"
+                data-imdb="{{ filme.imdb_id }}"
+                data-titulo="{{ filme.titulo }}"
+                data-in-fila="false">
+          + Adicionar à Fila
+        </button>
+        {% endif %}
       </div>
 
       {# ── ASSISTIDO POR ── #}

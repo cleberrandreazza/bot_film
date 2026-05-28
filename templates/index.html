@@ -5,7 +5,7 @@
 <!-- HERO -->
 <section class="hero">
   <div class="container">
-    <h1>Cinema Coletivo</h1>
+    <h1>Cine do Botecão</h1>
     <p>O histórico de filmes do grupo — do Discord para a tela grande.</p>
     <div class="hero-stats">
       <div class="stat">
@@ -84,16 +84,16 @@
   </div>
 </section>
 
-<!-- DESTAQUES -->
-<section class="films-section" id="popular">
+<!-- RECOMENDAÇÕES -->
+<section class="films-section" id="recomendacoes">
   <div class="container">
     <div class="section-header">
-      <h2><span class="pill pill--orange">Destaques</span></h2>
-      <span class="section-count">filmes aclamados para descobrir</span>
-      <a href="/filmes/destaques" class="ver-todos-btn">Ver Todos ›</a>
+      <h2><span class="pill pill--orange">Recomendações</span></h2>
+      <span class="section-count">da lista do grupo, ainda não assistidos</span>
+      <a href="/filmes/recomendacoes" class="ver-todos-btn">Ver Todos ›</a>
     </div>
     <div class="films-grid films-grid--6">
-      {% for f in destaques %}
+      {% for f in recomendacoes %}
       <a href="/filme/{{ f.imdb_id }}" class="film-card">
         <div class="poster-wrap">
           {% if f.poster %}
@@ -105,7 +105,6 @@
         <div class="card-hover">
           <span class="card-title">{{ f.titulo }}</span>
           <span class="card-year">{{ f.ano }}</span>
-          {% if f.nota %}<span class="card-rating">&#9733; {{ f.nota }}</span>{% endif %}
         </div>
       </a>
       {% endfor %}

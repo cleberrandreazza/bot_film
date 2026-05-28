@@ -22,6 +22,8 @@ if os.path.exists('/data') or os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
 else:
     DB_PATH = 'filmes.db'
 
+WEB_URL = os.environ.get('WEB_URL', 'http://localhost:5000')
+
 dirname = os.path.dirname(DB_PATH)
 if dirname and not os.path.exists(dirname):
     try:
@@ -367,6 +369,19 @@ async def cmd_dica(ctx):
 # COMANDOS SLASH (/)
 # ================================================================
 
+@bot.tree.command(name="biblioteca", description="🎬 Abre o site do Cine do Botecão")
+async def slash_biblioteca(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🎬 Cine do Botecão",
+        description=f"Acesse a biblioteca completa de filmes do grupo:\n\n**[{WEB_URL}]({WEB_URL})**",
+        color=0x00e054,
+    )
+    embed.add_field(name="📋 Na Fila",        value="Filmes aguardando sessão",       inline=True)
+    embed.add_field(name="✅ Já Vistos",       value="Histórico do grupo",             inline=True)
+    embed.add_field(name="⭐ Recomendações",   value="Sugestões baseadas no histórico", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+
 @bot.tree.command(name="ajuda", description="Mostra todos os comandos disponíveis")
 async def slash_ajuda(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -641,10 +656,10 @@ async def on_scheduled_event_update(
     conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Quem marcou interessado E entrou no canal
+    # Quem entrou no canal durante o evento
     cursor.execute(
         "SELECT user_id, username FROM evento_participantes "
-        "WHERE evento_id=? AND interessado=1 AND entrou_canal=1",
+        "WHERE evento_id=? AND entrou_canal=1",
         (evento_id,)
     )
     participantes = cursor.fetchall()
@@ -664,6 +679,19 @@ async def on_scheduled_event_update(
             "(filme_id, user_id, username, display_name, avatar, source) "
             "VALUES (?, ?, ?, ?, ?, 'evento')",
             (filme_id, user_id, username, username, avatar),
+        )
+
+    # Sincroniza listas: marca o filme como assistido
+    cursor.execute("SELECT status FROM listas WHERE filme_id=?", (filme_id,))
+    row = cursor.fetchone()
+    if row:
+        cursor.execute(
+            "UPDATE listas SET status='assistido' WHERE filme_id=?", (filme_id,)
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO listas (user_id, filme_id, titulo, status) VALUES ('evento', ?, ?, 'assistido')",
+            (filme_id, titulo)
         )
 
     cursor.execute(

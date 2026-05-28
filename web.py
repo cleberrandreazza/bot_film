@@ -1,4 +1,5 @@
 from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for
+from dotenv import load_dotenv
 import sqlite3
 import requests
 import re
@@ -6,6 +7,8 @@ import os
 import time
 import random
 import urllib.parse
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
@@ -69,7 +72,7 @@ def inject_user():
         }
     return {'current_user': u}
 
-# Pool de filmes para a seção Destaques (mesmo do $dica do bot)
+# Pool de filmes para a seção Recomendações (mesmo do $dica do bot)
 FILMES_POOL = [
     'tt0111161', 'tt0468569', 'tt1375666', 'tt0137523', 'tt0110912',
     'tt0816692', 'tt0109830', 'tt0068646', 'tt6751668', 'tt0499549',
@@ -77,6 +80,13 @@ FILMES_POOL = [
     'tt0087332', 'tt0361748', 'tt0993846', 'tt15314262', 'tt11358390',
     'tt2119532', 'tt9362722', 'tt3501632', 'tt12555530', 'tt1630029',
     'tt1517268', 'tt10872600', 'tt1345836', 'tt2049555', 'tt10655866',
+    # filmes adicionais para garantir pool ≥ 50 após exclusões
+    'tt0120737', 'tt0167260', 'tt0167261', 'tt0172495', 'tt0120689',
+    'tt0209144', 'tt0266697', 'tt0266543', 'tt0317248', 'tt0325980',
+    'tt0372784', 'tt0387564', 'tt0407887', 'tt0434409', 'tt0435761',
+    'tt0477348', 'tt0482571', 'tt0903624', 'tt1130884', 'tt1156398',
+    'tt1187043', 'tt1201607', 'tt1289401', 'tt1375670', 'tt1392190',
+    'tt1396484', 'tt1431045', 'tt1535109', 'tt1706593', 'tt2096673',
 ]
 
 
@@ -399,18 +409,221 @@ def _omdb_basic(iid: str) -> dict | None:
 
 
 def _pool_destaques(n=6):
-    """Retorna N filmes aleatórios do pool (para a home)."""
+    """Retorna N filmes aleatórios do pool (fallback)."""
     ids    = random.sample(FILMES_POOL, min(n, len(FILMES_POOL)))
     result = [r for iid in ids if (r := _omdb_basic(iid))]
     return result
 
 
 def _pool_page(page: int):
-    """Retorna (filmes, total) do pool paginado (para /filmes/destaques)."""
+    """Retorna (filmes, total) do pool paginado."""
     start = (page - 1) * PER_PAGE
     ids   = FILMES_POOL[start:start + PER_PAGE]
     result = [r for iid in ids if (r := _omdb_basic(iid))]
     return result, len(FILMES_POOL)
+
+
+_recomendacoes_cache: dict = {'data': [], 'ts': 0.0}
+_CACHE_TTL = 600  # segundos
+
+
+def _fetch_recomendacoes_api(target: int = 60) -> list:
+    """Busca recomendações no JustWatch baseado nos gêneros dos filmes já assistidos.
+    Exclui filmes já presentes em listas ou em usuarios_assistidos.
+    Resultado é cacheado por _CACHE_TTL segundos."""
+    from collections import Counter
+
+    global _recomendacoes_cache
+    now = time.time()
+
+    # Carrega IDs excluídos sempre (podem mudar entre requisições)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        vistos_ids = [r[0] for r in conn.execute(
+            "SELECT filme_id FROM listas WHERE status='assistido'"
+        ).fetchall()]
+        known_ids = set(r[0] for r in conn.execute(
+            "SELECT DISTINCT filme_id FROM listas"
+        ).fetchall())
+        known_ids |= set(r[0] for r in conn.execute(
+            "SELECT DISTINCT filme_id FROM usuarios_assistidos"
+        ).fetchall())
+        conn.close()
+    except Exception:
+        vistos_ids, known_ids = [], set()
+
+    # Retorna cache filtrado se ainda válido
+    if _recomendacoes_cache['data'] and now - _recomendacoes_cache['ts'] < _CACHE_TTL:
+        return [f for f in _recomendacoes_cache['data'] if f['imdb_id'] not in known_ids]
+
+    # Extrai gêneros dos filmes já vistos via OMDB
+    genres_counter: Counter = Counter()
+    for iid in vistos_ids[:15]:
+        data = omdb_fetch(iid)
+        if data:
+            for g in (data.get('Genre') or '').split(','):
+                g = g.strip()
+                if g and g.lower() not in _GENERIC_GENRES:
+                    genres_counter[g] += 1
+
+    # Monta queries: top gêneros individuais + combinação dos 2 principais
+    top = [g for g, _ in genres_counter.most_common(4)]
+    queries = list(dict.fromkeys(top[:2] + (
+        [f'{top[0]} {top[1]}'] if len(top) >= 2 else []
+    )))
+    if not queries:
+        queries = ['thriller drama', 'action']
+
+    result: list = []
+    seen: set    = set()
+
+    for q in queries:
+        safe = q.lower().replace('"', '')
+        gql = (
+            '{ popularTitles(country: BR, first: 40,'
+            f' filter: {{searchQuery: "{safe}", objectTypes: [MOVIE]}}) {{'
+            ' edges { node { __typename ... on Movie {'
+            ' content(country: BR, language: "pt") {'
+            ' title posterUrl(profile: S718, format: WEBP)'
+            ' externalIds { imdbId }'
+            ' } } } } } }'
+        )
+        try:
+            r = requests.post(
+                JW_GRAPHQL, json={'query': gql},
+                headers={'User-Agent': 'JustWatch/4.0 (Android)'}, timeout=8
+            )
+            if not r.ok:
+                continue
+            edges = (r.json().get('data') or {}).get('popularTitles', {}).get('edges', [])
+            for edge in edges:
+                node = edge.get('node', {})
+                if node.get('__typename') != 'Movie':
+                    continue
+                c   = node.get('content', {})
+                iid = (c.get('externalIds') or {}).get('imdbId', '')
+                if not iid or iid in seen:
+                    continue
+                seen.add(iid)
+                if iid in known_ids:
+                    continue
+                poster = c.get('posterUrl', '')
+                result.append({
+                    'imdb_id': iid,
+                    'titulo':  c.get('title', ''),
+                    'poster':  f'https://images.justwatch.com{poster}' if poster else '',
+                    'ano':     '',
+                    'nota':    '',
+                })
+        except Exception as e:
+            print(f'JW recomendacoes error [{q}]: {e}')
+
+        if len(result) >= target:
+            break
+
+    _recomendacoes_cache['data'] = result
+    _recomendacoes_cache['ts']   = now
+    return [f for f in result if f['imdb_id'] not in known_ids]
+
+
+def _recomendacoes_home(n=6) -> list:
+    """Retorna N filmes aleatórios de recomendações via API."""
+    filmes = _fetch_recomendacoes_api(target=max(n * 4, 60))
+    if not filmes:
+        return []
+    return random.sample(filmes, min(n, len(filmes)))
+
+
+def _recomendacoes_page(page: int):
+    """Retorna (filmes, total) de recomendações paginadas via API."""
+    filmes = _fetch_recomendacoes_api(target=60)
+    total  = len(filmes)
+    start  = (page - 1) * PER_PAGE
+    return filmes[start:start + PER_PAGE], total
+
+
+def get_recomendacoes(n=6) -> list:
+    """Recomenda filmes baseado nos gêneros do grupo, excluindo o que já foi assistido."""
+    from collections import Counter
+
+    # IDs já conhecidos (fila + assistidos + marcados por usuários)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        known_ids = set(
+            r[0] for r in conn.execute("SELECT filme_id FROM listas").fetchall()
+        )
+        known_ids |= set(
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT filme_id FROM usuarios_assistidos"
+            ).fetchall()
+        )
+        listas_ids = list(known_ids)[:15]  # limita API calls
+        conn.close()
+    except Exception:
+        listas_ids, known_ids = [], set()
+
+    # Coleta gêneros dos filmes do grupo
+    all_genres: list[str] = []
+    for iid in listas_ids:
+        data = omdb_fetch(iid)
+        if data:
+            genres = [g.strip() for g in (data.get('Genre') or '').split(',') if g.strip()]
+            all_genres.extend(genres)
+
+    # Se não há histórico, cai no pool curado
+    if not all_genres:
+        return _pool_destaques(n)
+
+    # Prefere gêneros específicos (não genéricos)
+    counts   = Counter(all_genres)
+    specific = [g for g, _ in counts.most_common(6) if g.lower() not in _GENERIC_GENRES]
+    chosen   = specific[:2] if specific else [counts.most_common(1)[0][0]]
+    safe     = ' '.join(chosen).lower().replace('"', '')
+
+    query = (
+        '{ popularTitles(country: BR, first: 30,'
+        f' filter: {{searchQuery: "{safe}", objectTypes: [MOVIE]}}) {{'
+        ' edges { node { __typename ... on Movie {'
+        ' content(country: BR, language: "pt") {'
+        ' title posterUrl(profile: S718, format: WEBP)'
+        ' externalIds { imdbId }'
+        ' } } } } } }'
+    )
+
+    try:
+        r = requests.post(
+            JW_GRAPHQL, json={'query': query},
+            headers={'User-Agent': 'JustWatch/4.0 (Android)'}, timeout=8
+        )
+        if not r.ok:
+            return _pool_destaques(n)
+
+        edges  = (r.json().get('data') or {}).get('popularTitles', {}).get('edges', [])
+        result, seen = [], set()
+        for edge in edges:
+            node = edge.get('node', {})
+            if node.get('__typename') != 'Movie':
+                continue
+            c       = node.get('content', {})
+            iid     = (c.get('externalIds') or {}).get('imdbId', '')
+            if not iid or iid in known_ids or iid in seen:
+                continue
+            seen.add(iid)
+            poster  = c.get('posterUrl', '')
+            result.append({
+                'imdb_id': iid,
+                'titulo':  c.get('title', ''),
+                'poster':  f'https://images.justwatch.com{poster}' if poster else '',
+                'ano':     '',
+            })
+            if len(result) >= n:
+                break
+
+        return result if result else _pool_destaques(n)
+    except Exception as e:
+        print(f'Recomendacoes error: {e}')
+        return _pool_destaques(n)
 
 
 # ─────────────────────────────── helpers ──
@@ -554,39 +767,125 @@ def api_assistido_toggle():
     return jsonify({'watched': watched})
 
 
+@app.route('/api/fila/adicionar', methods=['POST'])
+def api_fila_adicionar():
+    body    = request.json or {}
+    imdb_id = body.get('imdb_id')
+    titulo  = body.get('titulo', '')
+    if not imdb_id:
+        return jsonify({'error': 'missing_imdb_id'}), 400
+
+    user_id = session.get('user_id')
+    conn    = sqlite3.connect(DB_PATH)
+
+    # Regra: usuário logado que já assistiu não pode adicionar à fila
+    if user_id and conn.execute(
+        "SELECT 1 FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
+        (imdb_id, user_id)
+    ).fetchone():
+        conn.close()
+        return jsonify({'error': 'already_watched'}), 403
+
+    row = conn.execute(
+        "SELECT status FROM listas WHERE filme_id=?", (imdb_id,)
+    ).fetchone()
+    if row:
+        if row[0] == 'watchlist':
+            conn.close()
+            return jsonify({'in_fila': True, 'already': True})
+        # status='assistido' → volta para fila
+        conn.execute(
+            "UPDATE listas SET status='watchlist' WHERE filme_id=?", (imdb_id,)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({'in_fila': True})
+
+    conn.execute(
+        "INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'watchlist')",
+        (user_id or 'anon', imdb_id, titulo)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'in_fila': True})
+
+
+@app.route('/api/fila/remover', methods=['POST'])
+def api_fila_remover():
+    body    = request.json or {}
+    imdb_id = body.get('imdb_id')
+    if not imdb_id:
+        return jsonify({'error': 'missing_imdb_id'}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    row  = conn.execute(
+        "SELECT status FROM listas WHERE filme_id=?", (imdb_id,)
+    ).fetchone()
+    if not row or row[0] != 'watchlist':
+        conn.close()
+        return jsonify({'error': 'not_in_fila'}), 400
+
+    conn.execute("DELETE FROM listas WHERE filme_id=? AND status='watchlist'", (imdb_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'in_fila': False})
+
+
 # ─────────────────────────────────────────────── routes ──
 
 @app.route('/')
 def index():
     watchlist_rows, assistidos_rows = _get_db_rows()
-    destaques = _pool_destaques()
+    recomendacoes = _recomendacoes_home()
     return render_template('index.html',
                            watchlist=watchlist_rows,
                            assistidos=assistidos_rows,
-                           destaques=destaques)
+                           recomendacoes=recomendacoes)
 
 
 @app.route('/filme/<imdb_id>')
 def filme_page(imdb_id):
     info = get_movie(imdb_id)
     if not info:
-        abort(404)
-    # Check if current user has watched this film
+        # Fallback: monta info mínima a partir da listas
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute(
+                "SELECT titulo FROM listas WHERE filme_id=?", (imdb_id,)
+            ).fetchone()
+            conn.close()
+        except Exception:
+            row = None
+        if not row:
+            abort(404)
+        info = {
+            'imdb_id': imdb_id, 'titulo': row[0], 'poster': '',
+            'ano': '', 'nota': '', 'sinopse': '', 'duracao': None,
+            'diretor': '', 'generos': [], 'elenco': [], 'rated': '',
+            'pais': '', 'ratings': {}, 'streaming': [], 'trailer_id': '',
+            'similares': [],
+        }
     user_watched = False
+    in_fila      = False
+    conn = sqlite3.connect(DB_PATH)
     if 'user_id' in session:
-        conn = sqlite3.connect(DB_PATH)
         user_watched = bool(conn.execute(
             "SELECT 1 FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
             (imdb_id, session['user_id'])
         ).fetchone())
-        conn.close()
-    return render_template('filme.html', filme=info, user_watched=user_watched)
+    row = conn.execute(
+        "SELECT status FROM listas WHERE filme_id=?", (imdb_id,)
+    ).fetchone()
+    in_fila = bool(row and row[0] == 'watchlist')
+    conn.close()
+    return render_template('filme.html', filme=info,
+                           user_watched=user_watched, in_fila=in_fila)
 
 
 SECOES = {
-    'fila':       ('watchlist',  'Na Fila',    '#fila'),
-    'vistos':     ('assistido',  'Já Vistos',  '#vistos'),
-    'destaques':  (None,         'Destaques',  '#popular'),
+    'fila':           ('watchlist',  'Na Fila',        '#fila'),
+    'vistos':         ('assistido',  'Já Vistos',      '#vistos'),
+    'recomendacoes':  (None,         'Recomendações',  '#recomendacoes'),
 }
 
 @app.route('/filmes/<secao>')
@@ -596,8 +895,8 @@ def lista_completa(secao):
     page  = max(1, int(request.args.get('page', 1)))
     status, titulo, _ = SECOES[secao]
 
-    if secao == 'destaques':
-        filmes, total = _pool_page(page)
+    if secao == 'recomendacoes':
+        filmes, total = _recomendacoes_page(page)
         is_db = False
     else:
         rows, total = _get_db_page(status, page)
