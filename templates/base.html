@@ -31,6 +31,17 @@
     </div>
   </footer>
 
+  <!-- Trailer Modal -->
+  <div id="trailer-modal" class="modal" aria-hidden="true" role="dialog">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-box">
+      <button class="modal-close" id="modal-close" aria-label="Fechar">&#x2715;</button>
+      <iframe id="trailer-iframe" src="" frameborder="0"
+              allow="autoplay; encrypted-media; fullscreen"
+              allowfullscreen></iframe>
+    </div>
+  </div>
+
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

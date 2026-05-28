@@ -124,12 +124,13 @@
 
         <div class="lbd-watch-header">
           <span class="lbd-watch-title">ONDE ASSISTIR</span>
+          {% if filme.trailer_id %}
           <button class="lbd-trailer-btn trailer-btn"
-                  data-title="{{ filme.titulo }}"
-                  data-year="{{ filme.ano }}"
+                  data-trailer="{{ filme.trailer_id }}"
                   aria-label="Ver trailer">
             &#9654; Trailer
           </button>
+          {% endif %}
         </div>
 
         {% if filme.streaming %}

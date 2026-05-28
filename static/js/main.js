@@ -1,12 +1,30 @@
-/* ── Trailer — abre YouTube em nova aba ────────────────────── */
+/* ── Trailer Modal ─────────────────────────────────────────── */
+const modal    = document.getElementById('trailer-modal');
+const iframe   = document.getElementById('trailer-iframe');
+const closeBtn = document.getElementById('modal-close');
+const backdrop = document.getElementById('modal-backdrop');
+
+function openTrailer(videoId) {
+  iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  iframe.src = '';
+  document.body.style.overflow = '';
+}
+
 document.querySelectorAll('.trailer-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const q = encodeURIComponent(
-      `${btn.dataset.title} ${btn.dataset.year} trailer legendado português`
-    );
-    window.open(`https://www.youtube.com/results?search_query=${q}`, '_blank', 'noopener');
-  });
+  btn.addEventListener('click', () => openTrailer(btn.dataset.trailer));
 });
+
+closeBtn  && closeBtn.addEventListener('click', closeModal);
+backdrop  && backdrop.addEventListener('click', closeModal);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 /* ── Async poster loading (watchlist + assistidos cards) ─── */
 document.addEventListener('DOMContentLoaded', () => {
@@ -25,16 +43,13 @@ document.addEventListener('DOMContentLoaded', () => {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
-
         const img  = card.querySelector('.poster-img');
         const year = card.querySelector('.card-year');
-
         if (img && data.poster) {
           const tmp = new Image();
           tmp.onload = () => { img.src = data.poster; img.classList.add('loaded'); };
           tmp.src = data.poster;
         }
-
         if (year && data.ano) year.textContent = data.ano;
       })
       .catch(() => {})
