@@ -34,14 +34,26 @@ else:
 
 
 def _resolve_web_url() -> str:
+    def _normalize_url(value: str) -> str:
+        cleaned = value.strip()
+        # Aceita valor colado como Markdown: [texto](url)
+        if cleaned.startswith("[") and "](" in cleaned and cleaned.endswith(")"):
+            try:
+                cleaned = cleaned.split("](", 1)[1][:-1].strip()
+            except Exception:
+                pass
+        if cleaned and not cleaned.startswith(("http://", "https://")):
+            cleaned = f"https://{cleaned.lstrip('/')}"
+        return cleaned
+
     explicit_url = os.environ.get("WEB_URL")
     if explicit_url:
-        return explicit_url
+        return _normalize_url(explicit_url)
     railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if railway_domain:
-        return f"https://{railway_domain}"
+        return _normalize_url(f"https://{railway_domain}")
     port = os.environ.get("PORT", os.environ.get("WEB_PORT", "5000"))
-    return f"http://localhost:{port}"
+    return _normalize_url(f"http://localhost:{port}")
 
 
 WEB_URL = _resolve_web_url()
@@ -403,7 +415,7 @@ async def cmd_sorteio(ctx):
 async def cmd_biblioteca(ctx):
     embed = discord.Embed(
         title="🎬 Cine do Botecão",
-        description=f"Acesse a biblioteca completa de filmes do grupo:\n\n**[{WEB_URL}]({WEB_URL})**",
+        description=f"Acesse a biblioteca completa de filmes do grupo:\n\n<{WEB_URL}>",
         color=0x00e054,
     )
     embed.add_field(name="📋 Na Fila",        value="Filmes aguardando sessão",       inline=True)
@@ -420,7 +432,7 @@ async def cmd_biblioteca(ctx):
 async def slash_biblioteca(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎬 Cine do Botecão",
-        description=f"Acesse a biblioteca completa de filmes do grupo:\n\n**[{WEB_URL}]({WEB_URL})**",
+        description=f"Acesse a biblioteca completa de filmes do grupo:\n\n<{WEB_URL}>",
         color=0x00e054,
     )
     embed.add_field(name="📋 Na Fila",        value="Filmes aguardando sessão",       inline=True)
