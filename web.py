@@ -21,22 +21,38 @@ _TTL = 3600  # 1 hour
 
 
 def _init_web_tables():
-    """Garante que as tabelas extras existam (bot pode não ter rodado ainda)."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS usuarios_assistidos (
+    """Cria todas as tabelas necessárias caso ainda não existam."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.executescript('''
+        CREATE TABLE IF NOT EXISTS listas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT, filme_id TEXT, titulo TEXT, status TEXT
+        );
+        CREATE TABLE IF NOT EXISTS eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_event_id TEXT UNIQUE,
+            filme_id TEXT NOT NULL, titulo TEXT NOT NULL,
+            data_evento TEXT NOT NULL, canal_id TEXT, guild_id TEXT,
+            status TEXT DEFAULT "agendado"
+        );
+        CREATE TABLE IF NOT EXISTS evento_participantes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evento_id INTEGER NOT NULL, user_id TEXT NOT NULL,
+            username TEXT, interessado INTEGER DEFAULT 0, entrou_canal INTEGER DEFAULT 0,
+            UNIQUE(evento_id, user_id)
+        );
+        CREATE TABLE IF NOT EXISTS usuarios_assistidos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             filme_id TEXT NOT NULL, user_id TEXT NOT NULL,
             username TEXT, display_name TEXT, avatar TEXT,
-            source TEXT DEFAULT 'manual',
-            data_assistido TEXT DEFAULT (datetime("now")),
+            source TEXT DEFAULT "manual",
+            data_assistido TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(filme_id, user_id)
-        )''')
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
+        );
+    ''')
+    conn.commit()
+    conn.close()
 
 _init_web_tables()
 

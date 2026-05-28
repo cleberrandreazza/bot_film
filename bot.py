@@ -75,7 +75,7 @@ def iniciar_banco():
             display_name TEXT,
             avatar TEXT,
             source TEXT DEFAULT 'manual',
-            data_assistido TEXT DEFAULT (datetime("now")),
+            data_assistido TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(filme_id, user_id)
         )
     ''')
