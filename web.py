@@ -122,6 +122,61 @@ def get_pt_synopsis(title: str, year: str) -> str | None:
     return None
 
 
+_GENERIC_GENRES = {'action', 'comedy', 'animation', 'family', 'drama', 'adventure'}
+
+def get_similar_movies(genres: list, exclude_imdb: str) -> list:
+    """Busca 6 filmes similares via JustWatch usando os gêneros do filme."""
+    key = f'similar:{exclude_imdb}'
+    now = time.time()
+    if key in _cache and now - _cache[key][1] < _TTL * 6:
+        return _cache[key][0]
+    if not genres:
+        return []
+    # Prefere gêneros específicos; cai no primeiro se todos forem genéricos
+    specific = [g for g in genres if g.lower() not in _GENERIC_GENRES]
+    chosen   = specific[:2] if specific else genres[:2]
+    safe     = ' '.join(chosen).lower().replace('"', '')
+    query = (
+        '{ popularTitles(country: BR, first: 18,'
+        f' filter: {{searchQuery: "{safe}", objectTypes: [MOVIE]}}) {{'
+        ' edges { node { __typename ... on Movie {'
+        ' content(country: BR, language: "pt") {'
+        ' title fullPath'
+        ' posterUrl(profile: S718, format: WEBP)'
+        ' externalIds { imdbId }'
+        ' } } } } } }'
+    )
+    try:
+        r = requests.post(JW_GRAPHQL, json={'query': query},
+            headers={'User-Agent': 'JustWatch/4.0 (Android)'}, timeout=8)
+        if not r.ok:
+            return []
+        edges = (r.json().get('data') or {}).get('popularTitles', {}).get('edges', [])
+        result, seen = [], set()
+        for edge in edges:
+            node = edge.get('node', {})
+            if node.get('__typename') != 'Movie':
+                continue
+            c = node.get('content', {})
+            imdb_id = (c.get('externalIds') or {}).get('imdbId', '')
+            if not imdb_id or imdb_id == exclude_imdb or imdb_id in seen:
+                continue
+            seen.add(imdb_id)
+            poster_path = c.get('posterUrl', '')
+            result.append({
+                'imdb_id': imdb_id,
+                'titulo':  c.get('title', ''),
+                'poster':  f'https://www.justwatch.com{poster_path}' if poster_path else '',
+            })
+            if len(result) >= 6:
+                break
+        _cache[key] = (result, now)
+        return result
+    except Exception as e:
+        print(f'Similar movies error: {e}')
+    return []
+
+
 def get_trailer_id(title: str, year: str) -> str | None:
     """Obtém o ID do trailer no YouTube via scraping da página de busca."""
     key = f'yt:{title}:{year}'
@@ -238,6 +293,7 @@ def get_movie(imdb_id: str):
         if pt_synopsis:
             movie['sinopse'] = pt_synopsis
         movie['trailer_id'] = get_trailer_id(movie['titulo'], movie['ano'])
+        movie['similares']  = get_similar_movies(movie['generos'], imdb_id)
     return movie
 
 

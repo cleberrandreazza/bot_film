@@ -172,4 +172,24 @@
   </div>
 </div>
 
+{% if filme.similares %}
+<section class="similar-section container">
+  <h3 class="similar-title">Títulos Similares</h3>
+  <div class="similar-grid">
+    {% for s in filme.similares %}
+    <a href="/filme/{{ s.imdb_id }}" class="similar-card">
+      <div class="similar-poster">
+        {% if s.poster %}
+        <img src="{{ s.poster }}" alt="{{ s.titulo }}" loading="lazy" />
+        {% else %}
+        <div class="similar-poster__empty">{{ s.titulo[0] }}</div>
+        {% endif %}
+      </div>
+      <p class="similar-card__title">{{ s.titulo }}</p>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {% endblock %}
