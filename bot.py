@@ -5,14 +5,24 @@ import sqlite3
 import requests
 import random
 import os
+import threading
 from datetime import datetime, timezone, timedelta
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
+def _env_to_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 intents = discord.Intents.default()
-intents.message_content = True
+# Privileged intents are opt-in via env vars to avoid deploy crash
+# when they are not enabled in the Discord Developer Portal.
+intents.message_content = _env_to_bool("DISCORD_INTENT_MESSAGE_CONTENT", False)
 intents.voice_states = True
 intents.guild_scheduled_events = True
-intents.members = True
+intents.members = _env_to_bool("DISCORD_INTENT_MEMBERS", False)
 bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help')
 
@@ -22,7 +32,19 @@ if os.path.exists('/data') or os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
 else:
     DB_PATH = 'filmes.db'
 
-WEB_URL = os.environ.get('WEB_URL', 'http://localhost:5000')
+
+def _resolve_web_url() -> str:
+    explicit_url = os.environ.get("WEB_URL")
+    if explicit_url:
+        return explicit_url
+    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if railway_domain:
+        return f"https://{railway_domain}"
+    port = os.environ.get("PORT", os.environ.get("WEB_PORT", "5000"))
+    return f"http://localhost:{port}"
+
+
+WEB_URL = _resolve_web_url()
 
 dirname = os.path.dirname(DB_PATH)
 if dirname and not os.path.exists(dirname):
@@ -91,6 +113,13 @@ async def on_ready():
     await bot.tree.sync()
     print(f"🚀 Bot Coletivo de Filmes Online como {bot.user}")
     print(f"📦 Caminho ativo e seguro do Banco de Dados: {os.path.abspath(DB_PATH)}")
+    print(
+        "⚙️ Intents: "
+        f"message_content={intents.message_content}, "
+        f"members={intents.members}, "
+        f"voice_states={intents.voice_states}, "
+        f"guild_scheduled_events={intents.guild_scheduled_events}"
+    )
 
 
 # ---- FUNÇÃO AUXILIAR: BUSCAR NO IMDB POR NOME ----
@@ -714,4 +743,18 @@ async def on_scheduled_event_update(
 
 
 # ---- EXECUÇÃO DO BOT ----
+def _start_web_server():
+    from web import app
+
+    port = int(os.environ.get("PORT", os.environ.get("WEB_PORT", "5000")))
+    os.environ["WEB_PORT"] = str(port)
+
+    def _run():
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+    threading.Thread(target=_run, daemon=True).start()
+    print(f"🌐 Biblioteca web ativa em {WEB_URL} (porta {port})")
+
+
+_start_web_server()
 bot.run(os.environ.get('DISCORD_TOKEN'))
