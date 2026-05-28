@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <h1>Cinema Coletivo</h1>
+    <p>O histórico de filmes do grupo — do Discord para a tela grande.</p>
+    <div class="hero-stats">
+      <div class="stat">
+        <span class="stat-num">{{ watchlist | length }}</span>
+        <span class="stat-label">na fila</span>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat">
+        <span class="stat-num">{{ assistidos | length }}</span>
+        <span class="stat-label">assistidos</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- NA FILA -->
+<section class="films-section" id="fila">
+  <div class="container">
+    <div class="section-header">
+      <h2><span class="pill pill--green">Na Fila</span></h2>
+      <span class="section-count">{{ watchlist | length }} filmes</span>
+    </div>
+    {% if watchlist %}
+    <div class="films-scroll">
+      {% for f in watchlist %}
+      <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
+        <div class="poster-wrap">
+          <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
+          <div class="poster-placeholder"><span>{{ f['titulo'] }}</span></div>
+        </div>
+        <div class="card-hover">
+          <span class="card-title">{{ f['titulo'] }}</span>
+          <span class="card-year"></span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-state">Nenhum filme na fila. Use <code>$adicionar</code> ou <code>/adicionar</code> no Discord!</p>
+    {% endif %}
+  </div>
+</section>
+
+<!-- JÁ VISTOS -->
+<section class="films-section" id="vistos">
+  <div class="container">
+    <div class="section-header">
+      <h2><span class="pill pill--blue">Já Vistos</span></h2>
+      <span class="section-count">{{ assistidos | length }} filmes</span>
+    </div>
+    {% if assistidos %}
+    <div class="films-grid">
+      {% for f in assistidos %}
+      <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
+        <div class="poster-wrap">
+          <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
+          <div class="poster-placeholder"><span>{{ f['titulo'] }}</span></div>
+        </div>
+        <div class="card-hover">
+          <span class="card-title">{{ f['titulo'] }}</span>
+          <span class="card-year"></span>
+        </div>
+        <div class="watched-tick">&#10003;</div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-state">Nenhum filme assistido ainda. Use <code>$visto</code> no Discord!</p>
+    {% endif %}
+  </div>
+</section>
+
+<!-- EM ALTA -->
+<section class="films-section" id="popular">
+  <div class="container">
+    <div class="section-header">
+      <h2><span class="pill pill--orange">Em Alta</span></h2>
+      <span class="section-count">via TMDB esta semana</span>
+    </div>
+    <div class="films-grid">
+      {% for f in trending %}
+      <a href="/filme/{{ f.tmdb_id }}" class="film-card">
+        <div class="poster-wrap">
+          {% if f.poster %}
+          <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f.titulo }}" loading="lazy" />
+          {% else %}
+          <div class="poster-placeholder"><span>{{ f.titulo }}</span></div>
+          {% endif %}
+        </div>
+        <div class="card-hover">
+          <span class="card-title">{{ f.titulo }}</span>
+          <span class="card-year">{{ f.ano }}</span>
+          {% if f.nota %}<span class="card-rating">&#9733; {{ f.nota }}</span>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% endblock %}

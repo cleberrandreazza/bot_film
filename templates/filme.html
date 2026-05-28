@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}{{ filme.titulo }} &middot; Cinema Coletivo{% endblock %}
+
+{% block content %}
+
+<!-- ── HERO ──────────────────────────────────────────────────── -->
+<div class="film-hero" {% if filme.backdrop %}style="--bd:url('{{ filme.backdrop }}')"{% endif %}>
+  <div class="film-hero-inner container">
+
+    <!-- Poster -->
+    <div class="film-poster-col">
+      {% if filme.poster %}
+      <img class="film-poster-img" src="{{ filme.poster }}" alt="{{ filme.titulo }}" />
+      {% else %}
+      <div class="film-poster-empty">{{ filme.titulo[0] }}</div>
+      {% endif %}
+
+      {% if filme.trailer %}
+      <button class="trailer-btn" data-trailer="{{ filme.trailer }}">
+        <span class="trailer-icon">&#9654;</span> Assistir Trailer
+      </button>
+      {% endif %}
+    </div>
+
+    <!-- Info -->
+    <div class="film-info-col">
+      <h1 class="film-title">{{ filme.titulo }}</h1>
+
+      {% if filme.titulo_original and filme.titulo_original != filme.titulo %}
+      <p class="film-original">{{ filme.titulo_original }}</p>
+      {% endif %}
+
+      <div class="film-meta-row">
+        {% if filme.ano %}<span class="meta-chip">{{ filme.ano }}</span>{% endif %}
+        {% if filme.duracao %}
+        <span class="meta-chip">{{ filme.duracao // 60 }}h {{ filme.duracao % 60 }}min</span>
+        {% endif %}
+        {% if filme.nota %}
+        <span class="meta-chip meta-rating">&#9733; {{ filme.nota }} / 10</span>
+        {% endif %}
+      </div>
+
+      {% if filme.diretor %}
+      <p class="film-director">Dirigido por <strong>{{ filme.diretor }}</strong></p>
+      {% endif %}
+
+      {% if filme.generos %}
+      <div class="film-genres">
+        {% for g in filme.generos %}<span class="genre-tag">{{ g }}</span>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if filme.tagline %}
+      <p class="film-tagline">{{ filme.tagline }}</p>
+      {% endif %}
+
+      <!-- Stars display -->
+      {% if filme.nota %}
+      <div class="star-display">
+        {% set full = (filme.nota / 2) | int %}
+        {% set half = 1 if (filme.nota / 2 - full) >= 0.5 else 0 %}
+        {% for i in range(full) %}<span class="star filled">&#9733;</span>{% endfor %}
+        {% if half %}<span class="star half">&#9733;</span>{% endif %}
+        {% for i in range(5 - full - half) %}<span class="star empty">&#9733;</span>{% endfor %}
+        <span class="star-votes">{{ '{:,}'.format(filme.votos) }} avaliações</span>
+      </div>
+      {% endif %}
+
+      <!-- External links -->
+      <div class="ext-links-row">
+        {% if filme.imdb_id %}
+        <a href="https://www.imdb.com/title/{{ filme.imdb_id }}/" target="_blank" rel="noopener" class="ext-btn btn-imdb">IMDb</a>
+        {% endif %}
+        <a href="https://www.themoviedb.org/movie/{{ filme.tmdb_id }}" target="_blank" rel="noopener" class="ext-btn btn-tmdb">TMDB</a>
+        {% if filme.imdb_id %}
+        <a href="https://letterboxd.com/imdb/{{ filme.imdb_id }}/" target="_blank" rel="noopener" class="ext-btn btn-lb">Letterboxd</a>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+<!-- ── /HERO ─────────────────────────────────────────────────── -->
+
+<div class="film-body container">
+
+  <!-- Sinopse -->
+  <section class="film-section">
+    <h3 class="section-title">Sinopse</h3>
+    <p class="sinopse-text">{{ filme.sinopse }}</p>
+  </section>
+
+  <!-- Onde assistir -->
+  {% set has_providers = filme.providers and (filme.providers.flatrate or filme.providers.rent or filme.providers.buy) %}
+  {% if has_providers %}
+  <section class="film-section">
+    <h3 class="section-title">Onde Assistir no Brasil</h3>
+
+    {% if filme.providers.flatrate %}
+    <div class="providers-group">
+      <p class="providers-label">Streaming Incluso</p>
+      <div class="providers-row">
+        {% for p in filme.providers.flatrate %}
+        <div class="provider-logo" title="{{ p.provider_name }}">
+          <img src="https://image.tmdb.org/t/p/original{{ p.logo_path }}" alt="{{ p.provider_name }}" />
+          <span class="provider-name">{{ p.provider_name }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if filme.providers.rent %}
+    <div class="providers-group">
+      <p class="providers-label">Alugar</p>
+      <div class="providers-row">
+        {% for p in filme.providers.rent %}
+        <div class="provider-logo" title="{{ p.provider_name }}">
+          <img src="https://image.tmdb.org/t/p/original{{ p.logo_path }}" alt="{{ p.provider_name }}" />
+          <span class="provider-name">{{ p.provider_name }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if filme.providers.buy %}
+    <div class="providers-group">
+      <p class="providers-label">Comprar</p>
+      <div class="providers-row">
+        {% for p in filme.providers.buy %}
+        <div class="provider-logo" title="{{ p.provider_name }}">
+          <img src="https://image.tmdb.org/t/p/original{{ p.logo_path }}" alt="{{ p.provider_name }}" />
+          <span class="provider-name">{{ p.provider_name }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if filme.providers.link %}
+    <a class="providers-more" href="{{ filme.providers.link }}" target="_blank" rel="noopener">
+      Ver todas as opções &#8599;
+    </a>
+    {% endif %}
+  </section>
+  {% else %}
+  <section class="film-section">
+    <h3 class="section-title">Onde Assistir no Brasil</h3>
+    <p class="empty-state">Sem informação de streaming disponível no momento.</p>
+  </section>
+  {% endif %}
+
+  <!-- Elenco -->
+  {% if filme.elenco %}
+  <section class="film-section">
+    <h3 class="section-title">Elenco</h3>
+    <div class="cast-grid">
+      {% for c in filme.elenco %}
+      <div class="cast-card">
+        <div class="cast-photo-wrap">
+          {% if c.foto %}
+          <img src="{{ c.foto }}" alt="{{ c.nome }}" loading="lazy" />
+          {% else %}
+          <div class="cast-no-photo">{{ c.nome[0] }}</div>
+          {% endif %}
+        </div>
+        <p class="cast-name">{{ c.nome }}</p>
+        <p class="cast-char">{{ c.personagem }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+</div>
+{% endblock %}

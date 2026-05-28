@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Cinema Coletivo{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <span class="logo-icon">▶</span> Cinema Coletivo
+      </a>
+      <nav>
+        <a href="/#fila">Na Fila</a>
+        <a href="/#vistos">Já Vistos</a>
+        <a href="/#popular">Em Alta</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>{% block content %}{% endblock %}</main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>Cinema Coletivo &middot; Histórico do Discord &middot; Dados via TMDB</p>
+    </div>
+  </footer>
+
+  <!-- Trailer Modal -->
+  <div id="trailer-modal" class="modal" aria-hidden="true" role="dialog">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-box">
+      <button class="modal-close" id="modal-close" aria-label="Fechar">&#x2715;</button>
+      <iframe id="trailer-iframe" src="" frameborder="0"
+              allow="autoplay; encrypted-media; fullscreen"
+              allowfullscreen></iframe>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
