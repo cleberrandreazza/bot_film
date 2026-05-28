@@ -78,16 +78,16 @@
   </div>
 </section>
 
-<!-- EM ALTA -->
+<!-- DESTAQUES -->
 <section class="films-section" id="popular">
   <div class="container">
     <div class="section-header">
-      <h2><span class="pill pill--orange">Em Alta</span></h2>
-      <span class="section-count">via TMDB esta semana</span>
+      <h2><span class="pill pill--orange">Destaques</span></h2>
+      <span class="section-count">filmes aclamados para descobrir</span>
     </div>
     <div class="films-grid">
-      {% for f in trending %}
-      <a href="/filme/{{ f.tmdb_id }}" class="film-card">
+      {% for f in destaques %}
+      <a href="/filme/{{ f.imdb_id }}" class="film-card">
         <div class="poster-wrap">
           {% if f.poster %}
           <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f.titulo }}" loading="lazy" />

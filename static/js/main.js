@@ -1,11 +1,13 @@
 /* ── Trailer Modal ─────────────────────────────────────────── */
-const modal   = document.getElementById('trailer-modal');
-const iframe  = document.getElementById('trailer-iframe');
-const closeBtn  = document.getElementById('modal-close');
-const backdrop  = document.getElementById('modal-backdrop');
+const modal    = document.getElementById('trailer-modal');
+const iframe   = document.getElementById('trailer-iframe');
+const closeBtn = document.getElementById('modal-close');
+const backdrop = document.getElementById('modal-backdrop');
 
-function openTrailer(key) {
-  iframe.src = `https://www.youtube.com/embed/${key}?autoplay=1&cc_load_policy=1&cc_lang_pref=pt&rel=0`;
+function openTrailerSearch(title, year) {
+  // YouTube search embed — não requer API key
+  const q = encodeURIComponent(`${title} ${year} trailer legendado português`);
+  iframe.src = `https://www.youtube.com/embed?listType=search&list=${q}`;
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
@@ -19,7 +21,9 @@ function closeModal() {
 }
 
 document.querySelectorAll('.trailer-btn').forEach(btn => {
-  btn.addEventListener('click', () => openTrailer(btn.dataset.trailer));
+  btn.addEventListener('click', () => {
+    openTrailerSearch(btn.dataset.title, btn.dataset.year);
+  });
 });
 
 closeBtn  && closeBtn.addEventListener('click', closeModal);
@@ -28,7 +32,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 /* ── Async poster loading (watchlist + assistidos cards) ─── */
 document.addEventListener('DOMContentLoaded', () => {
-  const BATCH = 4; // concurrent requests at a time
+  const BATCH = 4;
   const cards = Array.from(document.querySelectorAll('[data-imdb-id]'));
   if (!cards.length) return;
 
@@ -49,19 +53,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (img && data.poster) {
           const tmp = new Image();
-          tmp.onload = () => {
-            img.src = data.poster;
-            img.classList.add('loaded');
-          };
+          tmp.onload = () => { img.src = data.poster; img.classList.add('loaded'); };
           tmp.src = data.poster;
         }
 
         if (year && data.ano) year.textContent = data.ano;
       })
-      .catch(() => {/* keep placeholder */})
+      .catch(() => {})
       .finally(loadNext);
   }
 
-  // Start BATCH parallel pipelines
   for (let i = 0; i < Math.min(BATCH, cards.length); i++) loadNext();
 });

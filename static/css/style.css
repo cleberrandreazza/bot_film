@@ -345,7 +345,60 @@ code {
   max-width: 700px;
 }
 
-/* ── STREAMING PROVIDERS ────────────────────────────────────────────────── */
+/* ── JUSTWATCH BLOCK ────────────────────────────────────────────────────── */
+.justwatch-block {
+  background: var(--bg2); border: 1px solid var(--bg3);
+  border-radius: var(--radius-lg); padding: 24px 28px;
+  display: flex; flex-direction: column; gap: 16px;
+  max-width: 560px;
+}
+
+.justwatch-desc {
+  color: var(--text); font-size: 15px; line-height: 1.6;
+}
+.justwatch-desc strong { color: var(--text-hi); }
+
+.justwatch-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #e8a319; color: #000;
+  font-size: 14px; font-weight: 700; letter-spacing: .03em;
+  padding: 10px 22px; border-radius: var(--radius);
+  transition: opacity .15s, transform .1s; align-self: flex-start;
+}
+.justwatch-btn:hover { opacity: .88; transform: translateY(-1px); }
+
+/* ── EXTRA RATINGS ──────────────────────────────────────────────────────── */
+.extra-ratings { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+
+.rating-badge {
+  font-size: 13px; font-weight: 700;
+  padding: 4px 12px; border-radius: 20px;
+  background: var(--bg3); color: var(--text-hi);
+}
+
+/* ── CAST CHIPS ─────────────────────────────────────────────────────────── */
+.cast-list { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.cast-name-chip {
+  background: var(--bg3); color: var(--text);
+  font-size: 13px; padding: 5px 14px; border-radius: 20px;
+  border: 1px solid var(--bg4);
+  transition: color .15s, border-color .15s;
+}
+.cast-name-chip:hover { color: var(--text-hi); border-color: var(--text); }
+
+/* ── INFO TABLE ─────────────────────────────────────────────────────────── */
+.info-dl {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 10px 24px; font-size: 15px;
+}
+.info-dl dt { color: var(--text-lo); font-weight: 700; }
+.info-dl dd { color: var(--text-hi); }
+
+/* ── JUSTWATCH EXT BUTTON ───────────────────────────────────────────────── */
+.btn-jw { background: #e8a319; color: #000; }
+
+/* ── LEGACY STREAMING PROVIDERS (mantido para compatibilidade) ────────── */
 .providers-group { margin-bottom: 24px; }
 
 .providers-label {
