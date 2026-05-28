@@ -108,7 +108,34 @@
     {# ── SIDEBAR ── #}
     <aside class="lbd-sidebar">
 
-      {# ONDE ASSISTIR — igual ao print do Letterboxd #}
+      {# Avaliações — primeiro item do sidebar #}
+      {% if filme.ratings or filme.nota %}
+      <div class="lbd-sidebar-block lbd-sidebar-block--first">
+        <h4 class="lbd-sidebar-title">Avaliações</h4>
+        <ul class="lbd-ratings-list">
+          {% if filme.nota %}
+          <li class="lbd-rating-item">
+            <span class="lbd-rating-source">IMDb</span>
+            <span class="lbd-rating-value lbd-rating-value--imdb">{{ filme.nota }}<small>/10</small></span>
+          </li>
+          {% endif %}
+          {% if filme.ratings.get('Rotten Tomatoes') %}
+          <li class="lbd-rating-item">
+            <span class="lbd-rating-source">Rotten Tomatoes</span>
+            <span class="lbd-rating-value lbd-rating-value--rt">{{ filme.ratings['Rotten Tomatoes'] }}</span>
+          </li>
+          {% endif %}
+          {% if filme.ratings.get('Metacritic') %}
+          <li class="lbd-rating-item">
+            <span class="lbd-rating-source">Metacritic</span>
+            <span class="lbd-rating-value lbd-rating-value--mc">{{ filme.ratings['Metacritic'] }}</span>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {# ONDE ASSISTIR #}
       <div class="lbd-watch-box">
 
         <div class="lbd-watch-header">
@@ -154,33 +181,6 @@
         {% endif %}
 
       </div>
-
-      {# Ratings #}
-      {% if filme.ratings or filme.nota %}
-      <div class="lbd-sidebar-block">
-        <h4 class="lbd-sidebar-title">Avaliações</h4>
-        <ul class="lbd-ratings-list">
-          {% if filme.nota %}
-          <li class="lbd-rating-item">
-            <span class="lbd-rating-source">IMDb</span>
-            <span class="lbd-rating-value lbd-rating-value--imdb">{{ filme.nota }}<small>/10</small></span>
-          </li>
-          {% endif %}
-          {% if filme.ratings.get('Rotten Tomatoes') %}
-          <li class="lbd-rating-item">
-            <span class="lbd-rating-source">Rotten Tomatoes</span>
-            <span class="lbd-rating-value lbd-rating-value--rt">{{ filme.ratings['Rotten Tomatoes'] }}</span>
-          </li>
-          {% endif %}
-          {% if filme.ratings.get('Metacritic') %}
-          <li class="lbd-rating-item">
-            <span class="lbd-rating-source">Metacritic</span>
-            <span class="lbd-rating-value lbd-rating-value--mc">{{ filme.ratings['Metacritic'] }}</span>
-          </li>
-          {% endif %}
-        </ul>
-      </div>
-      {% endif %}
 
     </aside>
 

@@ -399,6 +399,7 @@ code {
   border-top: 1px solid var(--bg2); padding-top: 20px;
   display: flex; flex-direction: column; gap: 10px;
 }
+.lbd-sidebar-block--first { border-top: none; padding-top: 0; }
 .lbd-sidebar-title {
   color: var(--text-lo); font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .14em;
