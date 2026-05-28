@@ -5,10 +5,14 @@ import sqlite3
 import requests
 import random
 import os
+from datetime import datetime, timezone, timedelta
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 intents = discord.Intents.default()
 intents.message_content = True
+intents.voice_states = True
+intents.guild_scheduled_events = True
+intents.members = True
 bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help')
 
@@ -36,6 +40,43 @@ def iniciar_banco():
             filme_id TEXT,
             titulo TEXT,
             status TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_event_id TEXT UNIQUE,
+            filme_id TEXT NOT NULL,
+            titulo TEXT NOT NULL,
+            data_evento TEXT NOT NULL,
+            canal_id TEXT,
+            guild_id TEXT,
+            status TEXT DEFAULT 'agendado'
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS evento_participantes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evento_id INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            username TEXT,
+            interessado INTEGER DEFAULT 0,
+            entrou_canal INTEGER DEFAULT 0,
+            UNIQUE(evento_id, user_id),
+            FOREIGN KEY (evento_id) REFERENCES eventos(id)
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios_assistidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filme_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            username TEXT,
+            display_name TEXT,
+            avatar TEXT,
+            source TEXT DEFAULT 'manual',
+            data_assistido TEXT DEFAULT (datetime("now")),
+            UNIQUE(filme_id, user_id)
         )
     ''')
     conn.commit()
@@ -363,6 +404,285 @@ async def slash_sorteio(interaction: discord.Interaction):
 async def slash_dica(interaction: discord.Interaction):
     await interaction.response.defer()
     await _dica(interaction.followup.send)
+
+
+# ================================================================
+# COMANDO: EVENTO
+# ================================================================
+
+def _parse_data_hora(data: str, hora: str):
+    """Converte strings de data e hora para datetime BRT (UTC-3)."""
+    BRT = timezone(timedelta(hours=-3))
+    data  = data.strip()
+    hora  = hora.strip().replace('h', ':').rstrip(':')
+    if ':' not in hora:
+        hora = hora + ':00'
+
+    now = datetime.now(BRT)
+    dt  = None
+    for fmt in ('%d/%m/%Y', '%d/%m/%y', '%d/%m'):
+        try:
+            dt = datetime.strptime(data, fmt)
+            if fmt == '%d/%m':
+                dt = dt.replace(year=now.year)
+                if dt.date() < now.date():
+                    dt = dt.replace(year=now.year + 1)
+            break
+        except ValueError:
+            continue
+    if not dt:
+        return None, "Data inválida. Use **dd/mm** ou **dd/mm/aaaa**."
+
+    try:
+        t = datetime.strptime(hora, '%H:%M').time()
+        dt = dt.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0, tzinfo=BRT)
+    except ValueError:
+        return None, "Hora inválida. Use **HH:MM** (ex: 20:00)."
+
+    if dt < datetime.now(BRT):
+        return None, "A data/hora do evento já passou."
+    return dt, None
+
+
+@bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
+@app_commands.describe(
+    filme="Filme da fila (autocomplete) ou busca livre",
+    data="Data do evento — ex: 25/06",
+    hora="Hora do evento — ex: 20:00",
+    canal="Canal de voz (opcional)",
+)
+async def criar_evento_cmd(
+    interaction: discord.Interaction,
+    filme: str,
+    data: str,
+    hora: str,
+    canal: discord.VoiceChannel = None,
+):
+    await interaction.response.defer()
+
+    dt, erro = _parse_data_hora(data, hora)
+    if erro:
+        await interaction.followup.send(f"❌ {erro}")
+        return
+
+    # Busca o filme no DB ou no IMDb
+    conn   = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT filme_id, titulo FROM listas WHERE titulo LIKE ? LIMIT 1",
+        (f'%{filme.strip()}%',)
+    )
+    row = cursor.fetchone()
+    if row:
+        filme_id, titulo = row
+    else:
+        found = buscar_imdb(filme)
+        if not found:
+            conn.close()
+            await interaction.followup.send(f"❌ Filme **{filme}** não encontrado.")
+            return
+        filme_id, titulo = found['id'], found['titulo']
+
+    # Acha canal de voz
+    if not canal:
+        canal = next(
+            (c for c in interaction.guild.channels
+             if isinstance(c, discord.VoiceChannel)), None
+        )
+    if not canal:
+        conn.close()
+        await interaction.followup.send("❌ Nenhum canal de voz encontrado no servidor.")
+        return
+
+    # Cria o evento Discord
+    try:
+        discord_event = await interaction.guild.create_scheduled_event(
+            name=f"🎬 {titulo}",
+            description=(
+                f"Sessão coletiva de cinema!\n\n"
+                f"Marque como **Interessado** e entre no canal **{canal.name}** "
+                f"durante o evento para registrar sua presença."
+            ),
+            start_time=dt,
+            end_time=dt + timedelta(hours=3),
+            channel=canal,
+            entity_type=discord.EntityType.voice,
+            privacy_level=discord.PrivacyLevel.guild_only,
+        )
+    except Exception as e:
+        conn.close()
+        await interaction.followup.send(f"❌ Erro ao criar o evento: {e}")
+        return
+
+    cursor.execute(
+        "INSERT OR IGNORE INTO eventos "
+        "(discord_event_id, filme_id, titulo, data_evento, canal_id, guild_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (str(discord_event.id), filme_id, titulo,
+         dt.isoformat(), str(canal.id), str(interaction.guild.id)),
+    )
+    conn.commit()
+    conn.close()
+
+    embed = discord.Embed(
+        title="📅 Sessão de Cinema Criada!",
+        color=0x00e054,
+    )
+    embed.add_field(name="🎬 Filme",   value=titulo,                          inline=False)
+    embed.add_field(name="📅 Data",    value=dt.strftime('%d/%m/%Y às %H:%M'), inline=True)
+    embed.add_field(name="🎙️ Canal",  value=canal.name,                       inline=True)
+    embed.set_footer(text="Marque como Interessado no evento e entre no canal para ser contabilizado!")
+    await interaction.followup.send(embed=embed)
+
+
+@criar_evento_cmd.autocomplete('filme')
+async def evento_filme_autocomplete(interaction: discord.Interaction, current: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if current:
+        cursor.execute(
+            "SELECT titulo FROM listas WHERE titulo LIKE ? ORDER BY id DESC LIMIT 8",
+            (f'%{current}%',)
+        )
+    else:
+        cursor.execute(
+            "SELECT titulo FROM listas WHERE status='watchlist' ORDER BY id DESC LIMIT 8"
+        )
+    rows = cursor.fetchall()
+    conn.close()
+    return [app_commands.Choice(name=r[0][:100], value=r[0][:100]) for r in rows]
+
+
+# ================================================================
+# RASTREAMENTO DE EVENTOS
+# ================================================================
+
+def _upsert_participante(evento_id: int, user_id: str, username: str, **flags):
+    conn   = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    sets   = ', '.join(f"{k}={v}" for k, v in flags.items())
+    cursor.execute(
+        f"INSERT INTO evento_participantes (evento_id, user_id, username, {', '.join(flags)}) "
+        f"VALUES (?, ?, ?, {', '.join('?' for _ in flags)}) "
+        f"ON CONFLICT(evento_id, user_id) DO UPDATE SET {sets}",
+        (evento_id, user_id, username, *flags.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _get_evento_by_discord_id(discord_event_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, filme_id, titulo, canal_id FROM eventos WHERE discord_event_id=?",
+        (str(discord_event_id),)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+@bot.event
+async def on_scheduled_event_user_add(event: discord.ScheduledEvent, user: discord.User):
+    """Usuário marcou Interessado no evento."""
+    row = _get_evento_by_discord_id(event.id)
+    if not row:
+        return
+    evento_id = row[0]
+    _upsert_participante(evento_id, str(user.id), user.name, interessado=1)
+
+
+@bot.event
+async def on_scheduled_event_user_remove(event: discord.ScheduledEvent, user: discord.User):
+    """Usuário removeu o Interessado."""
+    row = _get_evento_by_discord_id(event.id)
+    if not row:
+        return
+    evento_id = row[0]
+    _upsert_participante(evento_id, str(user.id), user.name, interessado=0)
+
+
+@bot.event
+async def on_voice_state_update(
+    member: discord.Member,
+    before: discord.VoiceState,
+    after: discord.VoiceState,
+):
+    """Rastreia entrada em canal de voz durante evento ativo."""
+    if not after.channel:
+        return
+    conn   = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM eventos WHERE canal_id=? AND status IN ('agendado','ativo')",
+        (str(after.channel.id),)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return
+    _upsert_participante(row[0], str(member.id), member.name, entrou_canal=1)
+
+
+@bot.event
+async def on_scheduled_event_update(
+    before: discord.ScheduledEvent,
+    after: discord.ScheduledEvent,
+):
+    """Quando o evento termina, registra quem assistiu."""
+    if after.status != discord.EventStatus.completed:
+        return
+    row = _get_evento_by_discord_id(after.id)
+    if not row:
+        return
+    evento_id, filme_id, titulo, _ = row
+
+    conn   = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Quem marcou interessado E entrou no canal
+    cursor.execute(
+        "SELECT user_id, username FROM evento_participantes "
+        "WHERE evento_id=? AND interessado=1 AND entrou_canal=1",
+        (evento_id,)
+    )
+    participantes = cursor.fetchall()
+
+    for user_id, username in participantes:
+        # Tenta buscar avatar via guild member
+        avatar = None
+        try:
+            member = after.guild.get_member(int(user_id))
+            if member and member.avatar:
+                avatar = member.avatar.key
+        except Exception:
+            pass
+
+        cursor.execute(
+            "INSERT OR IGNORE INTO usuarios_assistidos "
+            "(filme_id, user_id, username, display_name, avatar, source) "
+            "VALUES (?, ?, ?, ?, ?, 'evento')",
+            (filme_id, user_id, username, username, avatar),
+        )
+
+    cursor.execute(
+        "UPDATE eventos SET status='encerrado' WHERE id=?", (evento_id,)
+    )
+    conn.commit()
+    conn.close()
+
+    # Notifica no canal de texto padrão
+    channel = after.guild.system_channel or next(
+        (c for c in after.guild.text_channels if c.permissions_for(after.guild.me).send_messages),
+        None
+    )
+    if channel and participantes:
+        nomes = ', '.join(f'<@{uid}>' for uid, _ in participantes)
+        await channel.send(
+            f"✅ Sessão de **{titulo}** encerrada! "
+            f"Registrado como assistido para: {nomes}"
+        )
 
 
 # ---- EXECUÇÃO DO BOT ----

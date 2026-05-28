@@ -1,18 +1,57 @@
-from flask import Flask, render_template, jsonify, abort, request
+from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for
 import sqlite3
 import requests
 import re
 import os
 import time
 import random
+import urllib.parse
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32)
 
-OMDB_KEY = os.environ.get('OMDB_API_KEY', '')
+OMDB_KEY             = os.environ.get('OMDB_API_KEY', '')
+DISCORD_CLIENT_ID    = os.environ.get('DISCORD_CLIENT_ID', '')
+DISCORD_CLIENT_SECRET= os.environ.get('DISCORD_CLIENT_SECRET', '')
+DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'http://localhost:5000/auth/callback')
 DB_PATH  = '/data/filmes.db' if os.path.exists('/data') else 'filmes.db'
 
 _cache: dict = {}
 _TTL = 3600  # 1 hour
+
+
+def _init_web_tables():
+    """Garante que as tabelas extras existam (bot pode não ter rodado ainda)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS usuarios_assistidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filme_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            username TEXT, display_name TEXT, avatar TEXT,
+            source TEXT DEFAULT 'manual',
+            data_assistido TEXT DEFAULT (datetime("now")),
+            UNIQUE(filme_id, user_id)
+        )''')
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+_init_web_tables()
+
+
+@app.context_processor
+def inject_user():
+    u = None
+    if 'user_id' in session:
+        u = {
+            'user_id':      session['user_id'],
+            'username':     session.get('username', ''),
+            'display_name': session.get('display_name', session.get('username', '')),
+            'avatar':       session.get('avatar'),
+        }
+    return {'current_user': u}
 
 # Pool de filmes para a seção Destaques (mesmo do $dica do bot)
 FILMES_POOL = [
@@ -358,6 +397,125 @@ def _pool_page(page: int):
     return result, len(FILMES_POOL)
 
 
+# ─────────────────────────────── helpers ──
+
+def _avatar_url(user_id: str, avatar: str | None) -> str:
+    if avatar:
+        return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=64"
+    idx = (int(user_id) >> 22) % 6
+    return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
+
+
+def _get_assistidos(imdb_id: str) -> list:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT user_id, username, display_name, avatar, source, data_assistido "
+            "FROM usuarios_assistidos WHERE filme_id=? ORDER BY data_assistido ASC",
+            (imdb_id,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+# ─────────────────────────────── OAuth2 routes ──
+
+@app.route('/auth/login')
+def auth_login():
+    if not DISCORD_CLIENT_ID:
+        return "Discord OAuth2 não configurado.", 503
+    next_url = request.args.get('next', '/')
+    params = urllib.parse.urlencode({
+        'client_id':    DISCORD_CLIENT_ID,
+        'redirect_uri': DISCORD_REDIRECT_URI,
+        'response_type':'code',
+        'scope':        'identify',
+        'state':        next_url,
+    })
+    return redirect(f'https://discord.com/oauth2/authorize?{params}')
+
+
+@app.route('/auth/callback')
+def auth_callback():
+    code     = request.args.get('code')
+    next_url = request.args.get('state', '/')
+    if not code:
+        return redirect('/')
+    r = requests.post('https://discord.com/api/oauth2/token', data={
+        'client_id':     DISCORD_CLIENT_ID,
+        'client_secret': DISCORD_CLIENT_SECRET,
+        'grant_type':    'authorization_code',
+        'code':          code,
+        'redirect_uri':  DISCORD_REDIRECT_URI,
+    }, headers={'Content-Type': 'application/x-www-form-urlencoded'}, timeout=8)
+    if not r.ok:
+        return redirect('/')
+    token = r.json().get('access_token')
+    r2 = requests.get('https://discord.com/api/users/@me',
+                      headers={'Authorization': f'Bearer {token}'}, timeout=8)
+    if not r2.ok:
+        return redirect('/')
+    u = r2.json()
+    session['user_id']      = u['id']
+    session['username']     = u['username']
+    session['display_name'] = u.get('global_name') or u['username']
+    session['avatar']       = u.get('avatar')
+    return redirect(next_url)
+
+
+@app.route('/auth/logout')
+def auth_logout():
+    next_url = request.referrer or '/'
+    session.clear()
+    return redirect(next_url)
+
+
+# ─────────────────────────────── API: assistidos ──
+
+@app.route('/api/assistidos/<imdb_id>')
+def api_assistidos(imdb_id):
+    rows = _get_assistidos(imdb_id)
+    for r in rows:
+        r['avatar_url'] = _avatar_url(r['user_id'], r['avatar'])
+    return jsonify(rows)
+
+
+@app.route('/api/assistido/toggle', methods=['POST'])
+def api_assistido_toggle():
+    if 'user_id' not in session:
+        return jsonify({'error': 'not_logged_in'}), 401
+    imdb_id = (request.json or {}).get('imdb_id')
+    if not imdb_id:
+        return jsonify({'error': 'missing_imdb_id'}), 400
+    conn   = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
+        (imdb_id, session['user_id'])
+    )
+    if cursor.fetchone():
+        cursor.execute(
+            "DELETE FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
+            (imdb_id, session['user_id'])
+        )
+        watched = False
+    else:
+        cursor.execute(
+            "INSERT OR IGNORE INTO usuarios_assistidos "
+            "(filme_id, user_id, username, display_name, avatar, source) "
+            "VALUES (?, ?, ?, ?, ?, 'manual')",
+            (imdb_id, session['user_id'],
+             session.get('username'), session.get('display_name'), session.get('avatar'))
+        )
+        watched = True
+    conn.commit()
+    conn.close()
+    return jsonify({'watched': watched})
+
+
 # ─────────────────────────────────────────────── routes ──
 
 @app.route('/')
@@ -375,7 +533,16 @@ def filme_page(imdb_id):
     info = get_movie(imdb_id)
     if not info:
         abort(404)
-    return render_template('filme.html', filme=info)
+    # Check if current user has watched this film
+    user_watched = False
+    if 'user_id' in session:
+        conn = sqlite3.connect(DB_PATH)
+        user_watched = bool(conn.execute(
+            "SELECT 1 FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
+            (imdb_id, session['user_id'])
+        ).fetchone())
+        conn.close()
+    return render_template('filme.html', filme=info, user_watched=user_watched)
 
 
 SECOES = {

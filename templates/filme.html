@@ -167,6 +167,32 @@
 
       </div>
 
+      {# ── ASSISTIDO POR ── #}
+      <div class="lbd-sidebar-block lbd-sidebar-block--first" id="assistido-block">
+        <div class="assistido-header">
+          <h4 class="lbd-sidebar-title">Assistido Por</h4>
+          {% if current_user %}
+          <button id="watch-toggle"
+                  class="watch-toggle-btn {% if user_watched %}watch-toggle-btn--on{% endif %}"
+                  data-imdb="{{ filme.imdb_id }}"
+                  data-watched="{{ 'true' if user_watched else 'false' }}">
+            {% if user_watched %}✓ Já Vi{% else %}+ Marcar como Visto{% endif %}
+          </button>
+          {% else %}
+          <a href="/auth/login?next=/filme/{{ filme.imdb_id }}"
+             class="watch-login-btn" title="Entre com Discord para marcar como visto">
+            <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png"
+                 alt="Discord" />
+            Login
+          </a>
+          {% endif %}
+        </div>
+
+        <div id="assistidos-list" class="assistidos-avatars">
+          <span class="assistidos-loading">Carregando…</span>
+        </div>
+      </div>
+
     </aside>
 
   </div>
