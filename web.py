@@ -503,22 +503,29 @@ def api_assistidos(imdb_id):
 def api_assistido_toggle():
     if 'user_id' not in session:
         return jsonify({'error': 'not_logged_in'}), 401
-    imdb_id = (request.json or {}).get('imdb_id')
+    body    = request.json or {}
+    imdb_id = body.get('imdb_id')
+    titulo  = body.get('titulo', '')
     if not imdb_id:
         return jsonify({'error': 'missing_imdb_id'}), 400
+
     conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
         (imdb_id, session['user_id'])
     )
-    if cursor.fetchone():
+    already = cursor.fetchone()
+
+    if already:
+        # Desmarca
         cursor.execute(
             "DELETE FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
             (imdb_id, session['user_id'])
         )
         watched = False
     else:
+        # Marca
         cursor.execute(
             "INSERT OR IGNORE INTO usuarios_assistidos "
             "(filme_id, user_id, username, display_name, avatar, source) "
@@ -526,7 +533,22 @@ def api_assistido_toggle():
             (imdb_id, session['user_id'],
              session.get('username'), session.get('display_name'), session.get('avatar'))
         )
+        # Sincroniza com listas (aparece em "Já Vistos" na home)
+        cursor.execute("SELECT status FROM listas WHERE filme_id=?", (imdb_id,))
+        row = cursor.fetchone()
+        if row:
+            if row[0] == 'watchlist':
+                cursor.execute(
+                    "UPDATE listas SET status='assistido' WHERE filme_id=?", (imdb_id,)
+                )
+        else:
+            cursor.execute(
+                "INSERT INTO listas (user_id, filme_id, titulo, status) "
+                "VALUES (?, ?, ?, 'assistido')",
+                (session['user_id'], imdb_id, titulo)
+            )
         watched = True
+
     conn.commit()
     conn.close()
     return jsonify({'watched': watched})

@@ -175,6 +175,7 @@
           <button id="watch-toggle"
                   class="watch-toggle-btn {% if user_watched %}watch-toggle-btn--on{% endif %}"
                   data-imdb="{{ filme.imdb_id }}"
+                  data-titulo="{{ filme.titulo }}"
                   data-watched="{{ 'true' if user_watched else 'false' }}">
             {% if user_watched %}✓ Já Vi{% else %}+ Marcar como Visto{% endif %}
           </button>

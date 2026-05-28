@@ -66,7 +66,7 @@ if (watchToggle) {
       const r = await fetch('/api/assistido/toggle', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imdb_id: imdbId }),
+        body: JSON.stringify({ imdb_id: imdbId, titulo: watchToggle.dataset.titulo }),
       });
       if (r.status === 401) {
         window.location = `/auth/login?next=/filme/${imdbId}`;
