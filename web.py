@@ -166,7 +166,7 @@ def get_similar_movies(genres: list, exclude_imdb: str) -> list:
             result.append({
                 'imdb_id': imdb_id,
                 'titulo':  c.get('title', ''),
-                'poster':  f'https://www.justwatch.com{poster_path}' if poster_path else '',
+                'poster':  f'https://images.justwatch.com{poster_path}' if poster_path else '',
             })
             if len(result) >= 6:
                 break
