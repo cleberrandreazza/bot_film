@@ -195,30 +195,23 @@ def buscar_imdb_por_id(imdb_id):
 async def _ajuda(send):
     embed = discord.Embed(
         title="🤖 Guia de Comandos — Cinema Coletivo",
-        description="Lista completa dos comandos disponíveis no bot.",
+        description="Lista de comandos disponíveis via slash (/).",
         color=0x2ecc71
-    )
-    embed.add_field(
-        name="💬 Comandos com `$`",
-        value=(
-            "`$ajuda` — Mostra este guia.\n"
-            "`$adicionar [filme]` — Adiciona um filme à fila.\n"
-            "`$visto [filme]` — Marca filme como assistido.\n"
-            "`$remover [filme]` — Remove filme da base.\n"
-            "`$sorteio` — Sorteia um filme da fila.\n"
-            "`$biblioteca` — Abre o site do Cine do Botecão."
-        ),
-        inline=False,
     )
     embed.add_field(
         name="🧩 Comandos Slash `/`",
         value=(
-            "`/ajuda`, `/biblioteca`, `/adicionar`, `/visto`, `/remover`, "
-            "`/sorteio`, `/evento`"
+            "`/ajuda` — Mostra este guia.\n"
+            "`/biblioteca` — Abre o site do Cine do Botecão.\n"
+            "`/adicionar [filme]` — Adiciona um filme à fila.\n"
+            "`/visto [filme]` — Marca filme como assistido.\n"
+            "`/remover [filme]` — Remove filme da base.\n"
+            "`/sorteio` — Sorteia um filme da fila.\n"
+            "`/evento` — Cria uma sessão de cinema no servidor."
         ),
         inline=False,
     )
-    embed.set_footer(text="Use o formato desejado: prefixo $ ou barra /")
+    embed.set_footer(text="Use / para todos os comandos")
     await send(embed=embed)
 
 

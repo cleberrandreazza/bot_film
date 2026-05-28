@@ -152,3 +152,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   for (let i = 0; i < Math.min(BATCH, cards.length); i++) loadNext();
 });
+
+/* ── Busca na biblioteca (frontend) ─────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  const searchRoot = document.querySelector('[data-library-search]');
+  const input      = document.getElementById('library-search-input');
+  if (!searchRoot || !input) return;
+
+  const goToSearchPage = () => {
+    const query = input.value.trim();
+    if (!query || query.length < 2) return;
+    window.location.href = `/buscar?q=${encodeURIComponent(query)}`;
+  };
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    goToSearchPage();
+  });
+});

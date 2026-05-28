@@ -13,6 +13,17 @@
     </div>
     <span class="lista-total">{{ total }} filmes</span>
   </div>
+  <div class="library-search library-search--list" data-library-search>
+    <input
+      id="library-search-input"
+      class="library-search__input"
+      type="search"
+      placeholder="Buscar filme nesta lista..."
+      autocomplete="off"
+      aria-label="Buscar filme nesta lista"
+    />
+    <p class="library-search__hint">Pressione Enter para buscar no IMDb.</p>
+  </div>
 
   <!-- Grid -->
   {% if filmes %}

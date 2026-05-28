@@ -367,6 +367,50 @@ def get_movie(imdb_id: str):
     return movie
 
 
+def search_imdb_movies(query: str, limit: int = 12) -> list[dict]:
+    """Busca filmes por texto no endpoint de sugestão do IMDb."""
+    query = (query or '').strip()
+    if not query:
+        return []
+    key = f'imdb-search:{query.lower()}:{limit}'
+    now = time.time()
+    if key in _cache and now - _cache[key][1] < 300:
+        return _cache[key][0]
+
+    url = f"https://v3.sg.media-imdb.com/suggestion/x/{requests.utils.quote(query.lower())}.json"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    results: list[dict] = []
+    try:
+        resp = requests.get(url, headers=headers, timeout=6)
+        if not resp.ok:
+            return []
+        data = resp.json()
+        for item in data.get('d', []):
+            if item.get('q') not in {'feature', 'TV movie', 'TV series', 'video'}:
+                continue
+            imdb_id = item.get('id', '')
+            title = item.get('l', '')
+            if not imdb_id or not title:
+                continue
+            poster = ''
+            image_info = item.get('i')
+            if isinstance(image_info, dict):
+                poster = image_info.get('imageUrl', '') or ''
+            results.append({
+                'id': imdb_id,
+                'titulo': title,
+                'ano': item.get('y', ''),
+                'poster': poster,
+            })
+            if len(results) >= limit:
+                break
+    except Exception as e:
+        print(f'IMDb search error: {e}')
+
+    _cache[key] = (results, now)
+    return results
+
+
 PER_PAGE = 12
 
 
@@ -921,6 +965,22 @@ def api_filme(imdb_id):
     if not info:
         return jsonify({'error': 'not found'}), 404
     return jsonify(info)
+
+
+@app.route('/api/busca')
+def api_busca():
+    query = (request.args.get('q') or '').strip()
+    if len(query) < 2:
+        return jsonify({'items': [], 'error': 'query_too_short'}), 400
+    items = search_imdb_movies(query, limit=12)
+    return jsonify({'items': items})
+
+
+@app.route('/buscar')
+def busca_page():
+    query = (request.args.get('q') or '').strip()
+    resultados = search_imdb_movies(query, limit=24) if len(query) >= 2 else []
+    return render_template('busca.html', query=query, resultados=resultados)
 
 
 if __name__ == '__main__':

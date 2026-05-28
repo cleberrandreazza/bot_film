@@ -7,6 +7,17 @@
   <div class="container">
     <h1>Cine do Botecão</h1>
     <p>O histórico de filmes do grupo — do Discord para a tela grande.</p>
+    <div class="library-search" data-library-search>
+      <input
+        id="library-search-input"
+        class="library-search__input"
+        type="search"
+        placeholder="Buscar filme na biblioteca..."
+        autocomplete="off"
+        aria-label="Buscar filme na biblioteca"
+      />
+      <p class="library-search__hint">Pressione Enter para buscar no IMDb.</p>
+    </div>
     <div class="hero-stats">
       <div class="stat">
         <span class="stat-num">{{ watchlist | length }}</span>
@@ -47,7 +58,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="empty-state">Nenhum filme na fila. Use <code>$adicionar</code> ou <code>/adicionar</code> no Discord!</p>
+    <p class="empty-state">Nenhum filme na fila. Use <code>$adicionar [filme]</code> no Discord.</p>
     {% endif %}
   </div>
 </section>
@@ -79,7 +90,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="empty-state">Nenhum filme assistido ainda. Use <code>$visto</code> no Discord!</p>
+    <p class="empty-state">Nenhum filme assistido ainda. Use <code>$visto [filme]</code> no Discord.</p>
     {% endif %}
   </div>
 </section>
