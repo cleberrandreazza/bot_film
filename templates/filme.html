@@ -33,15 +33,26 @@
       </div>
       {% endif %}
 
-      {% if filme.nota %}
-      <div class="lbd-stars" title="IMDb {{ filme.nota }}/10">
-        {% set full = (filme.nota / 2) | int %}
-        {% set half = 1 if (filme.nota / 2 - full) >= 0.5 else 0 %}
-        {% for i in range(full) %}<span class="lbd-star lbd-star--full">★</span>{% endfor %}
-        {% if half %}<span class="lbd-star lbd-star--half">★</span>{% endif %}
-        {% for i in range(5 - full - half) %}<span class="lbd-star lbd-star--empty">★</span>{% endfor %}
-        <span class="lbd-star-label">{{ filme.nota }}<small>/10</small>
-          &nbsp;·&nbsp; {{ '{:,}'.format(filme.votos) }} ratings</span>
+      {% if filme.ratings or filme.nota %}
+      <div class="lbd-hero-ratings">
+        {% if filme.nota %}
+        <div class="lbd-hero-rating">
+          <span class="lbd-hero-rating__src">IMDb</span>
+          <span class="lbd-hero-rating__val lbd-hero-rating__val--imdb">{{ filme.nota }}<small>/10</small></span>
+        </div>
+        {% endif %}
+        {% if filme.ratings.get('Rotten Tomatoes') %}
+        <div class="lbd-hero-rating">
+          <span class="lbd-hero-rating__src">Rotten Tomatoes</span>
+          <span class="lbd-hero-rating__val lbd-hero-rating__val--rt">{{ filme.ratings['Rotten Tomatoes'] }}</span>
+        </div>
+        {% endif %}
+        {% if filme.ratings.get('Metacritic') %}
+        <div class="lbd-hero-rating">
+          <span class="lbd-hero-rating__src">Metacritic</span>
+          <span class="lbd-hero-rating__val lbd-hero-rating__val--mc">{{ filme.ratings['Metacritic'] }}</span>
+        </div>
+        {% endif %}
       </div>
       {% endif %}
 
@@ -107,33 +118,6 @@
 
     {# ── SIDEBAR ── #}
     <aside class="lbd-sidebar">
-
-      {# Avaliações — primeiro item do sidebar #}
-      {% if filme.ratings or filme.nota %}
-      <div class="lbd-sidebar-block lbd-sidebar-block--first">
-        <h4 class="lbd-sidebar-title">Avaliações</h4>
-        <ul class="lbd-ratings-list">
-          {% if filme.nota %}
-          <li class="lbd-rating-item">
-            <span class="lbd-rating-source">IMDb</span>
-            <span class="lbd-rating-value lbd-rating-value--imdb">{{ filme.nota }}<small>/10</small></span>
-          </li>
-          {% endif %}
-          {% if filme.ratings.get('Rotten Tomatoes') %}
-          <li class="lbd-rating-item">
-            <span class="lbd-rating-source">Rotten Tomatoes</span>
-            <span class="lbd-rating-value lbd-rating-value--rt">{{ filme.ratings['Rotten Tomatoes'] }}</span>
-          </li>
-          {% endif %}
-          {% if filme.ratings.get('Metacritic') %}
-          <li class="lbd-rating-item">
-            <span class="lbd-rating-source">Metacritic</span>
-            <span class="lbd-rating-value lbd-rating-value--mc">{{ filme.ratings['Metacritic'] }}</span>
-          </li>
-          {% endif %}
-        </ul>
-      </div>
-      {% endif %}
 
       {# ONDE ASSISTIR #}
       <div class="lbd-watch-box">
