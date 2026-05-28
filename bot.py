@@ -202,7 +202,7 @@ async def _ajuda(send):
         name="🧩 Comandos Slash `/`",
         value=(
             "`/ajuda`, `/biblioteca`, `/adicionar`, `/visto`, `/remover`, "
-            "`/lista`, `/sorteio`, `/dica`, `/evento`"
+            "`/sorteio`, `/evento`"
         ),
         inline=False,
     )
@@ -452,20 +452,10 @@ async def slash_remover(interaction: discord.Interaction, nome_do_filme: str):
     await interaction.response.defer()
     await _remover(interaction.followup.send, nome_do_filme)
 
-@bot.tree.command(name="lista", description="Exibe a fila e os filmes já assistidos")
-async def slash_lista(interaction: discord.Interaction):
-    await interaction.response.defer()
-    await _lista(interaction.followup.send)
-
 @bot.tree.command(name="sorteio", description="Sorteia um filme da fila para assistir hoje")
 async def slash_sorteio(interaction: discord.Interaction):
     await interaction.response.defer()
     await _sorteio(interaction.followup.send)
-
-@bot.tree.command(name="dica", description="Sorteia uma recomendação de filme aclamado")
-async def slash_dica(interaction: discord.Interaction):
-    await interaction.response.defer()
-    await _dica(interaction.followup.send)
 
 
 # ================================================================
