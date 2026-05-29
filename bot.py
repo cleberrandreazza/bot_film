@@ -533,8 +533,12 @@ async def criar_evento_cmd(
         (f'%{filme.strip()}%',)
     )
     row = cursor.fetchone()
+    capa_url = ""
     if row:
         filme_id, titulo = row
+        detalhes = buscar_imdb_por_id(filme_id)
+        if detalhes:
+            capa_url = detalhes.get("capa") or ""
     else:
         found = buscar_imdb(filme)
         if not found:
@@ -542,6 +546,7 @@ async def criar_evento_cmd(
             await interaction.followup.send(f"❌ Filme **{filme}** não encontrado.")
             return
         filme_id, titulo = found['id'], found['titulo']
+        capa_url = found.get("capa") or ""
 
     canal = await _get_evento_voice_channel(interaction.guild)
     if not canal:
@@ -582,6 +587,8 @@ async def criar_evento_cmd(
     conn.commit()
     conn.close()
 
+    event_url = discord_event.url
+
     embed = discord.Embed(
         title="📅 Sessão de Cinema Criada!",
         color=0x00e054,
@@ -589,8 +596,11 @@ async def criar_evento_cmd(
     embed.add_field(name="🎬 Filme",   value=titulo,                          inline=False)
     embed.add_field(name="📅 Data",    value=dt.strftime('%d/%m/%Y às %H:%M'), inline=True)
     embed.add_field(name="🎙️ Canal",  value=canal.name,                       inline=True)
+    embed.add_field(name="🔗 Evento",  value=f"[Abrir no Discord]({event_url})", inline=False)
+    if capa_url:
+        embed.set_image(url=capa_url)
     embed.set_footer(text="Marque como Interessado no evento e entre no canal para ser contabilizado!")
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(content=event_url, embed=embed)
 
 
 @bot.tree.command(name="excluir_evento", description="🗑️ Cancela uma sessão de cinema agendada")
