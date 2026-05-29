@@ -137,6 +137,36 @@ def buscar_imdb_por_id(imdb_id):
     return None
 
 
+_EVENT_COVER_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _baixar_imagem_evento(url: str) -> bytes | None:
+    """Baixa poster para capa do evento (Discord aceita JPG, PNG ou GIF, até 8 MB)."""
+    if not url:
+        return None
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.content
+        if not data or len(data) > _EVENT_COVER_MAX_BYTES:
+            return None
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        path = url.lower().split("?")[0]
+        ok_type = (
+            "image/jpeg" in ctype
+            or "image/png" in ctype
+            or "image/gif" in ctype
+            or path.endswith((".jpg", ".jpeg", ".png", ".gif"))
+        )
+        if not ok_type or "webp" in ctype or path.endswith(".webp"):
+            return None
+        return data
+    except Exception as e:
+        print(f"[Evento] Erro ao baixar capa: {e}")
+        return None
+
+
 # ================================================================
 # LÓGICA DOS COMANDOS (compartilhada entre $ e /)
 # ================================================================
@@ -557,25 +587,38 @@ async def criar_evento_cmd(
         )
         return
 
-    # Cria o evento Discord
+    # Cria o evento Discord (com capa do filme, se disponível)
+    event_kwargs = dict(
+        name=f"🎬 {titulo}",
+        description=(
+            f"Sessão coletiva de cinema!\n\n"
+            f"Marque como **Interessado** e entre no canal **{canal.name}** "
+            f"durante o evento para registrar sua presença."
+        ),
+        start_time=dt,
+        end_time=dt + timedelta(hours=3),
+        channel=canal,
+        entity_type=discord.EntityType.voice,
+        privacy_level=discord.PrivacyLevel.guild_only,
+    )
+    capa_bytes = _baixar_imagem_evento(capa_url)
+    if capa_bytes:
+        event_kwargs["image"] = capa_bytes
     try:
-        discord_event = await interaction.guild.create_scheduled_event(
-            name=f"🎬 {titulo}",
-            description=(
-                f"Sessão coletiva de cinema!\n\n"
-                f"Marque como **Interessado** e entre no canal **{canal.name}** "
-                f"durante o evento para registrar sua presença."
-            ),
-            start_time=dt,
-            end_time=dt + timedelta(hours=3),
-            channel=canal,
-            entity_type=discord.EntityType.voice,
-            privacy_level=discord.PrivacyLevel.guild_only,
-        )
+        discord_event = await interaction.guild.create_scheduled_event(**event_kwargs)
     except Exception as e:
-        conn.close()
-        await interaction.followup.send(f"❌ Erro ao criar o evento: {e}")
-        return
+        if "image" in event_kwargs:
+            del event_kwargs["image"]
+            try:
+                discord_event = await interaction.guild.create_scheduled_event(**event_kwargs)
+            except Exception as e2:
+                conn.close()
+                await interaction.followup.send(f"❌ Erro ao criar o evento: {e2}")
+                return
+        else:
+            conn.close()
+            await interaction.followup.send(f"❌ Erro ao criar o evento: {e}")
+            return
 
     cursor.execute(
         "INSERT OR IGNORE INTO eventos "
