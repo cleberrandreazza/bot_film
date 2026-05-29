@@ -56,6 +56,8 @@ def _resolve_web_url() -> str:
 
 
 WEB_URL = _resolve_web_url()
+EVENTO_VOICE_CHANNEL_ID = os.environ.get("EVENTO_VOICE_CHANNEL_ID", "").strip()
+EVENTO_VOICE_CHANNEL_NAME = os.environ.get("EVENTO_VOICE_CHANNEL_NAME", "").strip()
 
 dirname = os.path.dirname(DB_PATH)
 if dirname and not os.path.exists(dirname):
@@ -166,10 +168,19 @@ async def _ajuda(send):
             "**Parâmetros:**\n"
             "• **filme** — da fila ou busca no IMDb\n"
             "• **data** — `25/06` ou `25/06/2026`\n"
-            "• **hora** — `20:00` ou `20h` (Brasília)\n"
-            "• **canal** — opcional; se omitir, cria a sala **Cineminha**\n\n"
+            "• **hora** — `20:00` ou `20h` (Brasília)\n\n"
+            "Usa sempre a sala de voz configurada no servidor (`EVENTO_VOICE_CHANNEL_ID`). "
             "Quem marcar **Interessado** e entrar na sala é contabilizado. "
-            "Ao encerrar, o filme vai para **Já Vistos** e a **Cineminha** é removida."
+            "Ao encerrar, o filme vai para **Já Vistos**."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🗑️ `/excluir_evento` — Cancelar sessão",
+        value=(
+            "**Exemplo:**\n"
+            "`/excluir_evento filme:Inception`\n\n"
+            "Cancela um evento agendado (autocomplete lista sessões ativas)."
         ),
         inline=False,
     )
@@ -463,19 +474,49 @@ def _parse_data_hora(data: str, hora: str):
     return dt, None
 
 
+async def _get_evento_voice_channel(guild: discord.Guild) -> discord.VoiceChannel | None:
+    if EVENTO_VOICE_CHANNEL_ID:
+        ch = guild.get_channel(int(EVENTO_VOICE_CHANNEL_ID))
+        if isinstance(ch, discord.VoiceChannel):
+            return ch
+        try:
+            ch = await guild.fetch_channel(int(EVENTO_VOICE_CHANNEL_ID))
+            if isinstance(ch, discord.VoiceChannel):
+                return ch
+        except Exception:
+            pass
+    if EVENTO_VOICE_CHANNEL_NAME:
+        for ch in guild.voice_channels:
+            if ch.name == EVENTO_VOICE_CHANNEL_NAME:
+                return ch
+    return None
+
+
+def _get_evento_ativo_por_titulo(titulo: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, discord_event_id, titulo, data_evento FROM eventos "
+        "WHERE status IN ('agendado', 'ativo') AND titulo LIKE ? "
+        "ORDER BY id DESC LIMIT 1",
+        (f"%{titulo.strip()}%",),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
 @bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
 @app_commands.describe(
     filme="Filme da fila (autocomplete) ou busca livre",
     data="Data do evento — ex: 25/06",
     hora="Hora do evento — ex: 20:00",
-    canal="Canal de voz (opcional; se omitido, cria **Cineminha**)",
 )
 async def criar_evento_cmd(
     interaction: discord.Interaction,
     filme: str,
     data: str,
     hora: str,
-    canal: discord.VoiceChannel = None,
 ):
     await interaction.response.defer()
 
@@ -502,22 +543,14 @@ async def criar_evento_cmd(
             return
         filme_id, titulo = found['id'], found['titulo']
 
-    canal_temporario = False
+    canal = await _get_evento_voice_channel(interaction.guild)
     if not canal:
-        try:
-            canal = await interaction.guild.create_voice_channel("Cineminha")
-            canal_temporario = True
-        except discord.Forbidden:
-            conn.close()
-            await interaction.followup.send(
-                "❌ Sem permissão para criar canais de voz. "
-                "Conceda **Gerenciar canais** ao bot ou informe um canal existente."
-            )
-            return
-        except Exception as e:
-            conn.close()
-            await interaction.followup.send(f"❌ Erro ao criar sala Cineminha: {e}")
-            return
+        conn.close()
+        await interaction.followup.send(
+            "❌ Canal de voz do evento não configurado ou não encontrado. "
+            "Defina `EVENTO_VOICE_CHANNEL_ID` no Railway (ID do canal de voz)."
+        )
+        return
 
     # Cria o evento Discord
     try:
@@ -542,9 +575,9 @@ async def criar_evento_cmd(
     cursor.execute(
         "INSERT OR IGNORE INTO eventos "
         "(discord_event_id, filme_id, titulo, data_evento, canal_id, guild_id, canal_temporario) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, 0)",
         (str(discord_event.id), filme_id, titulo,
-         dt.isoformat(), str(canal.id), str(interaction.guild.id), int(canal_temporario)),
+         dt.isoformat(), str(canal.id), str(interaction.guild.id)),
     )
     conn.commit()
     conn.close()
@@ -558,6 +591,69 @@ async def criar_evento_cmd(
     embed.add_field(name="🎙️ Canal",  value=canal.name,                       inline=True)
     embed.set_footer(text="Marque como Interessado no evento e entre no canal para ser contabilizado!")
     await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="excluir_evento", description="🗑️ Cancela uma sessão de cinema agendada")
+@app_commands.describe(filme="Sessão a cancelar (autocomplete)")
+async def excluir_evento_cmd(interaction: discord.Interaction, filme: str):
+    await interaction.response.defer()
+
+    row = _get_evento_ativo_por_titulo(filme)
+    if not row:
+        await interaction.followup.send(
+            f"❌ Nenhuma sessão ativa encontrada para **{filme}**."
+        )
+        return
+
+    evento_id, discord_event_id, titulo, data_evento = row
+
+    try:
+        discord_event = await interaction.guild.fetch_scheduled_event(int(discord_event_id))
+        await discord_event.delete()
+    except discord.NotFound:
+        pass
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erro ao cancelar no Discord: {e}")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE eventos SET status='cancelado' WHERE id=?",
+        (evento_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    await interaction.followup.send(
+        f"🗑️ Sessão de **{titulo}** cancelada com sucesso."
+    )
+
+
+@excluir_evento_cmd.autocomplete("filme")
+async def excluir_evento_autocomplete(interaction: discord.Interaction, current: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if current:
+        cursor.execute(
+            "SELECT titulo, data_evento FROM eventos "
+            "WHERE status IN ('agendado', 'ativo') AND titulo LIKE ? "
+            "ORDER BY id DESC LIMIT 8",
+            (f"%{current}%",),
+        )
+    else:
+        cursor.execute(
+            "SELECT titulo, data_evento FROM eventos "
+            "WHERE status IN ('agendado', 'ativo') ORDER BY id DESC LIMIT 8"
+        )
+    rows = cursor.fetchall()
+    conn.close()
+    choices = []
+    for titulo, data_evento in rows:
+        label = titulo[:80]
+        if data_evento:
+            label = f"{titulo[:60]} ({data_evento[:10]})"[:100]
+        choices.append(app_commands.Choice(name=label, value=titulo[:100]))
+    return choices
 
 
 @criar_evento_cmd.autocomplete('filme')
@@ -662,7 +758,7 @@ async def on_scheduled_event_update(
     row = _get_evento_by_discord_id(after.id)
     if not row:
         return
-    evento_id, filme_id, titulo, canal_id, canal_temporario = row
+    evento_id, filme_id, titulo, _canal_id, _canal_temp = row
 
     conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -710,14 +806,6 @@ async def on_scheduled_event_update(
     )
     conn.commit()
     conn.close()
-
-    if canal_temporario and canal_id:
-        voice_ch = after.guild.get_channel(int(canal_id))
-        if isinstance(voice_ch, discord.VoiceChannel):
-            try:
-                await voice_ch.delete(reason="Sessão Cineminha encerrada")
-            except Exception as e:
-                print(f"[Evento] Erro ao remover sala Cineminha: {e}")
 
     # Notifica no canal de texto padrão
     channel = after.guild.system_channel or next(
