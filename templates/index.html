@@ -45,14 +45,15 @@
     {% if watchlist %}
     <div class="films-grid films-grid--6">
       {% for f in watchlist[:6] %}
-      <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
+      <a href="/filme/{{ f['filme_id'] }}" class="film-card">
         <div class="poster-wrap">
-          <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
-          <div class="poster-placeholder"><span>{{ f['titulo'] }}</span></div>
+          {% if f.poster %}
+          <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f['titulo'] }}" loading="lazy" />
+          {% endif %}
         </div>
         <div class="card-hover">
           <span class="card-title">{{ f['titulo'] }}</span>
-          <span class="card-year"></span>
+          {% if f.ano %}<span class="card-year">{{ f.ano }}</span>{% endif %}
         </div>
       </a>
       {% endfor %}
@@ -76,14 +77,15 @@
     {% if assistidos %}
     <div class="films-grid films-grid--6">
       {% for f in assistidos[:6] %}
-      <a href="/filme/{{ f['filme_id'] }}" class="film-card" data-imdb-id="{{ f['filme_id'] }}">
+      <a href="/filme/{{ f['filme_id'] }}" class="film-card">
         <div class="poster-wrap">
-          <img class="poster-img" src="" alt="{{ f['titulo'] }}" loading="lazy" />
-          <div class="poster-placeholder"><span>{{ f['titulo'] }}</span></div>
+          {% if f.poster %}
+          <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f['titulo'] }}" loading="lazy" />
+          {% endif %}
         </div>
         <div class="card-hover">
           <span class="card-title">{{ f['titulo'] }}</span>
-          <span class="card-year"></span>
+          {% if f.ano %}<span class="card-year">{{ f.ano }}</span>{% endif %}
         </div>
         <div class="watched-tick">&#10003;</div>
       </a>
@@ -109,8 +111,6 @@
         <div class="poster-wrap">
           {% if f.poster %}
           <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f.titulo }}" loading="lazy" />
-          {% else %}
-          <div class="poster-placeholder"><span>{{ f.titulo }}</span></div>
           {% endif %}
         </div>
         <div class="card-hover">

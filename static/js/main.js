@@ -171,3 +171,59 @@ document.addEventListener('DOMContentLoaded', () => {
     goToSearchPage();
   });
 });
+
+/* ── Backup: exportar / importar (site) ───────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  const exportBtn = document.getElementById('backup-export-btn');
+  const importBtn = document.getElementById('backup-import-btn');
+  const fileInput = document.getElementById('backup-import-file');
+  const status    = document.getElementById('backup-status');
+  if (!exportBtn && !importBtn) return;
+
+  const setStatus = (text) => { if (status) status.textContent = text; };
+
+  exportBtn?.addEventListener('click', async () => {
+    setStatus('Exportando...');
+    try {
+      const r = await fetch('/api/dados/export');
+      if (!r.ok) throw new Error('Falha na exportação');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      a.href = url;
+      a.download = `cine-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setStatus('Backup baixado com sucesso.');
+    } catch (err) {
+      setStatus(`Erro ao exportar: ${err.message}`);
+    }
+  });
+
+  importBtn?.addEventListener('click', () => fileInput?.click());
+
+  fileInput?.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    if (!window.confirm('Isso substitui todos os dados atuais. Deseja continuar?')) {
+      fileInput.value = '';
+      return;
+    }
+    setStatus('Importando...');
+    const body = new FormData();
+    body.append('file', file);
+    try {
+      const r = await fetch('/api/dados/import', { method: 'POST', body });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Falha na importação');
+      setStatus('Importado com sucesso! Recarregando...');
+      setTimeout(() => window.location.reload(), 900);
+    } catch (err) {
+      setStatus(`Erro ao importar: ${err.message}`);
+    }
+    fileInput.value = '';
+  });
+});

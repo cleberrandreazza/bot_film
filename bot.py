@@ -8,6 +8,8 @@ import os
 import threading
 from datetime import datetime, timezone, timedelta
 
+from db_utils import get_db_path, init_db
+
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
@@ -27,10 +29,7 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help')
 
 # 💾 BLINDAGEM DO BANCO DE DADOS (PERSISTÊNCIA ABSOLUTA)
-if os.path.exists('/data') or os.environ.get('RAILWAY_VOLUME_MOUNT_PATH'):
-    DB_PATH = '/data/filmes.db'
-else:
-    DB_PATH = 'filmes.db'
+DB_PATH = get_db_path()
 
 
 def _resolve_web_url() -> str:
@@ -66,59 +65,7 @@ if dirname and not os.path.exists(dirname):
     except Exception as e:
         print(f"⚠️ Erro ao criar diretório do volume: {e}")
 
-def iniciar_banco():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS listas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            filme_id TEXT,
-            titulo TEXT,
-            status TEXT
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS eventos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            discord_event_id TEXT UNIQUE,
-            filme_id TEXT NOT NULL,
-            titulo TEXT NOT NULL,
-            data_evento TEXT NOT NULL,
-            canal_id TEXT,
-            guild_id TEXT,
-            status TEXT DEFAULT 'agendado'
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS evento_participantes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            evento_id INTEGER NOT NULL,
-            user_id TEXT NOT NULL,
-            username TEXT,
-            interessado INTEGER DEFAULT 0,
-            entrou_canal INTEGER DEFAULT 0,
-            UNIQUE(evento_id, user_id),
-            FOREIGN KEY (evento_id) REFERENCES eventos(id)
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS usuarios_assistidos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filme_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            username TEXT,
-            display_name TEXT,
-            avatar TEXT,
-            source TEXT DEFAULT 'manual',
-            data_assistido TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(filme_id, user_id)
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-iniciar_banco()
+init_db()
 
 @bot.event
 async def on_ready():
@@ -206,8 +153,23 @@ async def _ajuda(send):
             "`/adicionar [filme]` — Adiciona um filme à fila.\n"
             "`/visto [filme]` — Marca filme como assistido.\n"
             "`/remover [filme]` — Remove filme da base.\n"
-            "`/sorteio` — Sorteia um filme da fila.\n"
-            "`/evento` — Cria uma sessão de cinema no servidor."
+            "`/sorteio` — Sorteia um filme da fila."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📅 `/evento` — Sessão de cinema",
+        value=(
+            "Agenda uma sessão coletiva no Discord.\n\n"
+            "**Exemplo:**\n"
+            "`/evento filme:Inception data:25/06 hora:20:00`\n\n"
+            "**Parâmetros:**\n"
+            "• **filme** — da fila ou busca no IMDb\n"
+            "• **data** — `25/06` ou `25/06/2026`\n"
+            "• **hora** — `20:00` ou `20h` (Brasília)\n"
+            "• **canal** — opcional; se omitir, cria a sala **Cineminha**\n\n"
+            "Quem marcar **Interessado** e entrar na sala é contabilizado. "
+            "Ao encerrar, o filme vai para **Já Vistos** e a **Cineminha** é removida."
         ),
         inline=False,
     )
@@ -506,7 +468,7 @@ def _parse_data_hora(data: str, hora: str):
     filme="Filme da fila (autocomplete) ou busca livre",
     data="Data do evento — ex: 25/06",
     hora="Hora do evento — ex: 20:00",
-    canal="Canal de voz (opcional)",
+    canal="Canal de voz (opcional; se omitido, cria **Cineminha**)",
 )
 async def criar_evento_cmd(
     interaction: discord.Interaction,
@@ -540,16 +502,22 @@ async def criar_evento_cmd(
             return
         filme_id, titulo = found['id'], found['titulo']
 
-    # Acha canal de voz
+    canal_temporario = False
     if not canal:
-        canal = next(
-            (c for c in interaction.guild.channels
-             if isinstance(c, discord.VoiceChannel)), None
-        )
-    if not canal:
-        conn.close()
-        await interaction.followup.send("❌ Nenhum canal de voz encontrado no servidor.")
-        return
+        try:
+            canal = await interaction.guild.create_voice_channel("Cineminha")
+            canal_temporario = True
+        except discord.Forbidden:
+            conn.close()
+            await interaction.followup.send(
+                "❌ Sem permissão para criar canais de voz. "
+                "Conceda **Gerenciar canais** ao bot ou informe um canal existente."
+            )
+            return
+        except Exception as e:
+            conn.close()
+            await interaction.followup.send(f"❌ Erro ao criar sala Cineminha: {e}")
+            return
 
     # Cria o evento Discord
     try:
@@ -573,10 +541,10 @@ async def criar_evento_cmd(
 
     cursor.execute(
         "INSERT OR IGNORE INTO eventos "
-        "(discord_event_id, filme_id, titulo, data_evento, canal_id, guild_id) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "(discord_event_id, filme_id, titulo, data_evento, canal_id, guild_id, canal_temporario) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (str(discord_event.id), filme_id, titulo,
-         dt.isoformat(), str(canal.id), str(interaction.guild.id)),
+         dt.isoformat(), str(canal.id), str(interaction.guild.id), int(canal_temporario)),
     )
     conn.commit()
     conn.close()
@@ -632,7 +600,8 @@ def _get_evento_by_discord_id(discord_event_id: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, filme_id, titulo, canal_id FROM eventos WHERE discord_event_id=?",
+        "SELECT id, filme_id, titulo, canal_id, canal_temporario "
+        "FROM eventos WHERE discord_event_id=?",
         (str(discord_event_id),)
     )
     row = cursor.fetchone()
@@ -693,7 +662,7 @@ async def on_scheduled_event_update(
     row = _get_evento_by_discord_id(after.id)
     if not row:
         return
-    evento_id, filme_id, titulo, _ = row
+    evento_id, filme_id, titulo, canal_id, canal_temporario = row
 
     conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -741,6 +710,14 @@ async def on_scheduled_event_update(
     )
     conn.commit()
     conn.close()
+
+    if canal_temporario and canal_id:
+        voice_ch = after.guild.get_channel(int(canal_id))
+        if isinstance(voice_ch, discord.VoiceChannel):
+            try:
+                await voice_ch.delete(reason="Sessão Cineminha encerrada")
+            except Exception as e:
+                print(f"[Evento] Erro ao remover sala Cineminha: {e}")
 
     # Notifica no canal de texto padrão
     channel = after.guild.system_channel or next(

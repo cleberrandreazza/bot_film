@@ -1,11 +1,14 @@
-from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for
+from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for, Response
 import sqlite3
 import requests
 import re
 import os
 import time
 import random
+import json
 import urllib.parse
+
+from db_utils import export_database, get_db_path, import_database, init_db
 
 try:
     from dotenv import load_dotenv
@@ -22,47 +25,13 @@ OMDB_KEY             = os.environ.get('OMDB_API_KEY', '')
 DISCORD_CLIENT_ID    = os.environ.get('DISCORD_CLIENT_ID', '')
 DISCORD_CLIENT_SECRET= os.environ.get('DISCORD_CLIENT_SECRET', '')
 DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'http://localhost:5000/auth/callback')
-DB_PATH  = '/data/filmes.db' if os.path.exists('/data') else 'filmes.db'
+DB_PATH              = get_db_path()
 
 _cache: dict = {}
 _TTL = 3600  # 1 hour
 
 
-def _init_web_tables():
-    """Cria todas as tabelas necessárias caso ainda não existam."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.executescript('''
-        CREATE TABLE IF NOT EXISTS listas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT, filme_id TEXT, titulo TEXT, status TEXT
-        );
-        CREATE TABLE IF NOT EXISTS eventos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            discord_event_id TEXT UNIQUE,
-            filme_id TEXT NOT NULL, titulo TEXT NOT NULL,
-            data_evento TEXT NOT NULL, canal_id TEXT, guild_id TEXT,
-            status TEXT DEFAULT "agendado"
-        );
-        CREATE TABLE IF NOT EXISTS evento_participantes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            evento_id INTEGER NOT NULL, user_id TEXT NOT NULL,
-            username TEXT, interessado INTEGER DEFAULT 0, entrou_canal INTEGER DEFAULT 0,
-            UNIQUE(evento_id, user_id)
-        );
-        CREATE TABLE IF NOT EXISTS usuarios_assistidos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filme_id TEXT NOT NULL, user_id TEXT NOT NULL,
-            username TEXT, display_name TEXT, avatar TEXT,
-            source TEXT DEFAULT "manual",
-            data_assistido TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(filme_id, user_id)
-        );
-    ''')
-    conn.commit()
-    conn.close()
-
-_init_web_tables()
+init_db()
 
 
 @app.context_processor
@@ -441,6 +410,17 @@ def _get_db_page(status: str, page: int):
         return list(rows), total
     except Exception:
         return [], 0
+
+
+def _enrich_rows(rows) -> list[dict]:
+    enriched = []
+    for row in rows:
+        item = dict(row)
+        basic = _omdb_basic(item.get("filme_id", ""))
+        item["poster"] = basic["poster"] if basic else ""
+        item["ano"] = basic["ano"] if basic else ""
+        enriched.append(item)
+    return enriched
 
 
 def _omdb_basic(iid: str) -> dict | None:
@@ -887,8 +867,8 @@ def index():
     watchlist_rows, assistidos_rows = _get_db_rows()
     recomendacoes = _recomendacoes_home()
     return render_template('index.html',
-                           watchlist=watchlist_rows,
-                           assistidos=assistidos_rows,
+                           watchlist=_enrich_rows(watchlist_rows),
+                           assistidos=_enrich_rows(assistidos_rows),
                            recomendacoes=recomendacoes)
 
 
@@ -949,7 +929,7 @@ def lista_completa(secao):
         is_db = False
     else:
         rows, total = _get_db_page(status, page)
-        filmes = rows
+        filmes = _enrich_rows(rows)
         is_db  = True
 
     total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
@@ -981,6 +961,31 @@ def busca_page():
     query = (request.args.get('q') or '').strip()
     resultados = search_imdb_movies(query, limit=24) if len(query) >= 2 else []
     return render_template('busca.html', query=query, resultados=resultados)
+
+
+@app.route('/api/dados/export')
+def api_dados_export():
+    payload = export_database()
+    return Response(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        mimetype="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="cine-backup.json"',
+        },
+    )
+
+
+@app.route('/api/dados/import', methods=['POST'])
+def api_dados_import():
+    try:
+        if request.files.get("file"):
+            payload = json.load(request.files["file"])
+        else:
+            payload = request.get_json(force=True)
+        counts = import_database(payload, replace=True)
+        return jsonify({"ok": True, "counts": counts})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 if __name__ == '__main__':
