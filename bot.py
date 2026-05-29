@@ -5,6 +5,7 @@ import sqlite3
 import requests
 import random
 import os
+import re
 import threading
 from datetime import datetime, timezone, timedelta
 
@@ -58,6 +59,10 @@ def _resolve_web_url() -> str:
 WEB_URL = _resolve_web_url()
 EVENTO_VOICE_CHANNEL_ID = os.environ.get("EVENTO_VOICE_CHANNEL_ID", "").strip()
 EVENTO_VOICE_CHANNEL_NAME = os.environ.get("EVENTO_VOICE_CHANNEL_NAME", "").strip()
+OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "").strip()
+_EVENTO_DURACAO_PADRAO_MIN = 120
+_EVENTO_DURACAO_MIN_MIN = 30
+_EVENTO_DURACAO_MAX_MIN = 480
 
 dirname = os.path.dirname(DB_PATH)
 if dirname and not os.path.exists(dirname):
@@ -140,6 +145,59 @@ def buscar_imdb_por_id(imdb_id):
 _EVENT_COVER_MAX_BYTES = 8 * 1024 * 1024
 
 
+def _parse_runtime_minutes(runtime: str) -> int | None:
+    if not runtime or runtime.upper() == "N/A":
+        return None
+    s = runtime.strip().lower()
+    total = 0
+    h = re.search(r"(\d+)\s*h", s)
+    m = re.search(r"(\d+)\s*min", s)
+    if h:
+        total += int(h.group(1)) * 60
+    if m:
+        total += int(m.group(1))
+    if total > 0:
+        return total
+    only_digits = re.fullmatch(r"\d+", s.replace(" ", ""))
+    if only_digits:
+        return int(only_digits.group(0))
+    return None
+
+
+def buscar_duracao_filme(imdb_id: str) -> int | None:
+    """Duração em minutos via OMDB (ex.: '142 min')."""
+    if not OMDB_API_KEY or not imdb_id:
+        return None
+    try:
+        resp = requests.get(
+            "https://www.omdbapi.com/",
+            params={"apikey": OMDB_API_KEY, "i": imdb_id},
+            timeout=8,
+        )
+        if resp.ok:
+            data = resp.json()
+            if data.get("Response") == "True":
+                return _parse_runtime_minutes(data.get("Runtime", ""))
+    except Exception as e:
+        print(f"[Evento] Erro ao buscar duração OMDB: {e}")
+    return None
+
+
+def _duracao_evento(imdb_id: str) -> timedelta:
+    mins = buscar_duracao_filme(imdb_id)
+    if mins:
+        mins = max(_EVENTO_DURACAO_MIN_MIN, min(mins, _EVENTO_DURACAO_MAX_MIN))
+        return timedelta(minutes=mins)
+    return timedelta(minutes=_EVENTO_DURACAO_PADRAO_MIN)
+
+
+def _formatar_duracao(minutos: int) -> str:
+    if minutos >= 60:
+        h, m = divmod(minutos, 60)
+        return f"{h}h {m:02d}min" if m else f"{h}h"
+    return f"{minutos} min"
+
+
 def _baixar_imagem_evento(url: str) -> bytes | None:
     """Baixa poster para capa do evento (Discord aceita JPG, PNG ou GIF, até 8 MB)."""
     if not url:
@@ -199,6 +257,7 @@ async def _ajuda(send):
             "• **filme** — da fila ou busca no IMDb\n"
             "• **data** — `25/06` ou `25/06/2026`\n"
             "• **hora** — `20:00` ou `20h` (Brasília)\n\n"
+            "A duração do evento segue o filme (OMDB). "
             "Usa sempre a sala de voz configurada no servidor (`EVENTO_VOICE_CHANNEL_ID`). "
             "Quem marcar **Interessado** e entrar na sala é contabilizado. "
             "Ao encerrar, o filme vai para **Já Vistos**."
@@ -587,16 +646,20 @@ async def criar_evento_cmd(
         )
         return
 
+    duracao_evento = _duracao_evento(filme_id)
+    duracao_min = int(duracao_evento.total_seconds() // 60)
+
     # Cria o evento Discord (com capa do filme, se disponível)
     event_kwargs = dict(
         name=f"🎬 {titulo}",
         description=(
             f"Sessão coletiva de cinema!\n\n"
+            f"Duração prevista: **{_formatar_duracao(duracao_min)}**.\n\n"
             f"Marque como **Interessado** e entre no canal **{canal.name}** "
             f"durante o evento para registrar sua presença."
         ),
         start_time=dt,
-        end_time=dt + timedelta(hours=3),
+        end_time=dt + duracao_evento,
         channel=canal,
         entity_type=discord.EntityType.voice,
         privacy_level=discord.PrivacyLevel.guild_only,
@@ -630,20 +693,8 @@ async def criar_evento_cmd(
     conn.commit()
     conn.close()
 
-    event_url = discord_event.url
-
-    embed = discord.Embed(
-        title="📅 Sessão de Cinema Criada!",
-        color=0x00e054,
-    )
-    embed.add_field(name="🎬 Filme",   value=titulo,                          inline=False)
-    embed.add_field(name="📅 Data",    value=dt.strftime('%d/%m/%Y às %H:%M'), inline=True)
-    embed.add_field(name="🎙️ Canal",  value=canal.name,                       inline=True)
-    embed.add_field(name="🔗 Evento",  value=f"[Abrir no Discord]({event_url})", inline=False)
-    if capa_url:
-        embed.set_image(url=capa_url)
-    embed.set_footer(text="Marque como Interessado no evento e entre no canal para ser contabilizado!")
-    await interaction.followup.send(content=event_url, embed=embed)
+    # Só o link: o Discord gera o preview nativo do evento (capa, Interessado, etc.)
+    await interaction.followup.send(discord_event.url)
 
 
 @bot.tree.command(name="excluir_evento", description="🗑️ Cancela uma sessão de cinema agendada")
