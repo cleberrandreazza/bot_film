@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import sqlite3
+import asyncio
 import requests
 import random
 import os
@@ -9,7 +9,7 @@ import re
 import threading
 from datetime import datetime, timezone, timedelta
 
-from db_utils import get_db_path, init_db
+import convex_db
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
@@ -28,9 +28,6 @@ intents.guild_scheduled_events = True
 intents.members = _env_to_bool("DISCORD_INTENT_MEMBERS", False)
 bot = commands.Bot(command_prefix="$", intents=intents)
 bot.remove_command('help')
-
-# 💾 BLINDAGEM DO BANCO DE DADOS (PERSISTÊNCIA ABSOLUTA)
-DB_PATH = get_db_path()
 
 
 def _resolve_web_url() -> str:
@@ -64,21 +61,12 @@ _EVENTO_DURACAO_PADRAO_MIN = 120
 _EVENTO_DURACAO_MIN_MIN = 30
 _EVENTO_DURACAO_MAX_MIN = 480
 
-dirname = os.path.dirname(DB_PATH)
-if dirname and not os.path.exists(dirname):
-    try:
-        os.makedirs(dirname, exist_ok=True)
-        print(f"📁 Pasta de volume {dirname} criada com sucesso para persistência.")
-    except Exception as e:
-        print(f"⚠️ Erro ao criar diretório do volume: {e}")
-
-init_db()
 
 @bot.event
 async def on_ready():
     await bot.tree.sync()
     print(f"🚀 Bot Coletivo de Filmes Online como {bot.user}")
-    print(f"📦 Caminho ativo e seguro do Banco de Dados: {os.path.abspath(DB_PATH)}")
+    print("📦 Banco de dados: Convex (persistente)")
     print(
         "⚙️ Intents: "
         f"message_content={intents.message_content}, "
@@ -284,20 +272,15 @@ async def _adicionar(send, user_id, nome_do_filme):
         await send("❌ Filme não encontrado no IMDb. Verifique o nome (nomes em inglês funcionam melhor!).")
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT status FROM listas WHERE filme_id = ?", (filme['id'],))
-    existe = cursor.fetchone()
+    status_existente = await asyncio.to_thread(convex_db.get_status_by_filme, filme['id'])
 
-    if existe:
-        status_atual = "Fila (Watchlist)" if existe[0] == "watchlist" else "Assistidos"
+    if status_existente:
+        status_atual = "Fila (Watchlist)" if status_existente == "watchlist" else "Assistidos"
         await send(f"⚠️ **{filme['titulo']}** já está na lista do servidor como *{status_atual}*!")
     else:
-        cursor.execute(
-            "INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'watchlist')",
-            (user_id, filme['id'], filme['titulo'])
+        await asyncio.to_thread(
+            convex_db.add_filme, user_id, filme['id'], filme['titulo'], "watchlist"
         )
-        conn.commit()
         embed = discord.Embed(
             title=f"🍿 {filme['titulo']} ({filme['ano']})",
             description=f"**Estrelando:** {filme['elenco']}\n\nAdicionado à fila do servidor!",
@@ -308,91 +291,52 @@ async def _adicionar(send, user_id, nome_do_filme):
             embed.set_image(url=filme['capa'])
         await send(embed=embed)
 
-    conn.close()
-
 
 async def _visto(send, user_id, nome_do_filme):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT filme_id, titulo FROM listas WHERE titulo LIKE ? AND status = 'watchlist'",
-        (f"%{nome_do_filme.strip()}%",)
-    )
-    resultado = cursor.fetchone()
+    resultado = await asyncio.to_thread(convex_db.search_watchlist_by_titulo, nome_do_filme)
 
     if resultado:
-        filme_id, titulo = resultado
-        cursor.execute("UPDATE listas SET status = 'assistido' WHERE filme_id = ?", (filme_id,))
-        conn.commit()
-        conn.close()
+        filme_id, titulo = resultado["filme_id"], resultado["titulo"]
+        await asyncio.to_thread(convex_db.set_status, filme_id, "assistido")
         await send(f"✅ **{titulo}** foi movido para os **Assistidos** do grupo!")
     else:
-        conn.close()
         await send(f"🔍 Não achei **{nome_do_filme}** na fila. Buscando no IMDb para marcar direto...")
         filme = buscar_imdb(nome_do_filme)
         if not filme:
             await send("❌ Filme não encontrado.")
             return
 
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM listas WHERE filme_id = ?", (filme['id'],))
-        ja_existe = cursor.fetchone()
-        if ja_existe:
-            cursor.execute("UPDATE listas SET status = 'assistido' WHERE filme_id = ?", (filme['id'],))
-        else:
-            cursor.execute(
-                "INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'assistido')",
-                (user_id, filme['id'], filme['titulo'])
-            )
-        conn.commit()
-        conn.close()
+        await asyncio.to_thread(
+            convex_db.marcar_assistido, user_id, filme['id'], filme['titulo']
+        )
         await send(f"✅ **{filme['titulo']}** adicionado direto nos **Assistidos**!")
 
 
 async def _remover(send, nome_do_filme):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT filme_id, titulo FROM listas WHERE titulo LIKE ?",
-        (f"%{nome_do_filme.strip()}%",)
-    )
-    resultado = cursor.fetchone()
+    resultado = await asyncio.to_thread(convex_db.search_any_by_titulo, nome_do_filme)
 
     if resultado:
-        filme_id, titulo = resultado
-        cursor.execute("DELETE FROM listas WHERE filme_id = ?", (filme_id,))
-        conn.commit()
+        filme_id, titulo = resultado["filme_id"], resultado["titulo"]
+        await asyncio.to_thread(convex_db.remove_by_filme, filme_id)
         await send(f"🗑️ **{titulo}** foi removido da lista global.")
     else:
         await send(f"❌ Não achei nenhum filme com o nome parecido com **{nome_do_filme}**.")
 
-    conn.close()
-
 
 async def _lista(send):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT titulo FROM listas WHERE status = 'watchlist'")
-    watchlist = cursor.fetchall()
-    cursor.execute("SELECT titulo FROM listas WHERE status = 'assistido'")
-    assistidos = cursor.fetchall()
-    conn.close()
+    watchlist = await asyncio.to_thread(convex_db.list_titulos_by_status, "watchlist")
+    assistidos = await asyncio.to_thread(convex_db.list_titulos_by_status, "assistido")
 
     embed = discord.Embed(title="🎬 Catálogo de Cinema do Servidor", color=0x3498db)
-    txt_watchlist = "\n".join([f"• {f[0]}" for f in watchlist]) if watchlist else "*Nenhum filme na fila.*"
-    txt_assistidos = "\n".join([f"• {f[0]}" for f in assistidos]) if assistidos else "*Nenhum filme assistido ainda.*"
+    txt_watchlist = "\n".join([f"• {t}" for t in watchlist]) if watchlist else "*Nenhum filme na fila.*"
+    txt_assistidos = "\n".join([f"• {t}" for t in assistidos]) if assistidos else "*Nenhum filme assistido ainda.*"
     embed.add_field(name="🍿 Para Assistir (Fila Geral)", value=txt_watchlist, inline=False)
     embed.add_field(name="✅ Já Vistos pela Galera",       value=txt_assistidos, inline=False)
     await send(embed=embed)
 
 
 async def _sorteio(send):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT filme_id, titulo FROM listas WHERE status = 'watchlist'")
-    watchlist = cursor.fetchall()
-    conn.close()
+    watchlist = await asyncio.to_thread(convex_db.list_watchlist_filmes)
 
     if not watchlist:
         await send("❌ A fila está vazia! Use `$adicionar` ou `/adicionar` para colocar filmes na lista.")
@@ -581,18 +525,8 @@ async def _get_evento_voice_channel(guild: discord.Guild) -> discord.VoiceChanne
     return None
 
 
-def _get_evento_ativo_por_titulo(titulo: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, discord_event_id, titulo, data_evento FROM eventos "
-        "WHERE status IN ('agendado', 'ativo') AND titulo LIKE ? "
-        "ORDER BY id DESC LIMIT 1",
-        (f"%{titulo.strip()}%",),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row
+async def _get_evento_ativo_por_titulo(titulo: str):
+    return await asyncio.to_thread(convex_db.get_evento_ativo_by_titulo, titulo)
 
 
 @bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
@@ -615,23 +549,16 @@ async def criar_evento_cmd(
         return
 
     # Busca o filme no DB ou no IMDb
-    conn   = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT filme_id, titulo FROM listas WHERE titulo LIKE ? LIMIT 1",
-        (f'%{filme.strip()}%',)
-    )
-    row = cursor.fetchone()
+    row = await asyncio.to_thread(convex_db.search_any_by_titulo, filme)
     capa_url = ""
     if row:
-        filme_id, titulo = row
+        filme_id, titulo = row["filme_id"], row["titulo"]
         detalhes = buscar_imdb_por_id(filme_id)
         if detalhes:
             capa_url = detalhes.get("capa") or ""
     else:
         found = buscar_imdb(filme)
         if not found:
-            conn.close()
             await interaction.followup.send(f"❌ Filme **{filme}** não encontrado.")
             return
         filme_id, titulo = found['id'], found['titulo']
@@ -639,7 +566,6 @@ async def criar_evento_cmd(
 
     canal = await _get_evento_voice_channel(interaction.guild)
     if not canal:
-        conn.close()
         await interaction.followup.send(
             "❌ Canal de voz do evento não configurado ou não encontrado. "
             "Defina `EVENTO_VOICE_CHANNEL_ID` no Railway (ID do canal de voz)."
@@ -675,23 +601,17 @@ async def criar_evento_cmd(
             try:
                 discord_event = await interaction.guild.create_scheduled_event(**event_kwargs)
             except Exception as e2:
-                conn.close()
                 await interaction.followup.send(f"❌ Erro ao criar o evento: {e2}")
                 return
         else:
-            conn.close()
             await interaction.followup.send(f"❌ Erro ao criar o evento: {e}")
             return
 
-    cursor.execute(
-        "INSERT OR IGNORE INTO eventos "
-        "(discord_event_id, filme_id, titulo, data_evento, canal_id, guild_id, canal_temporario) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0)",
-        (str(discord_event.id), filme_id, titulo,
-         dt.isoformat(), str(canal.id), str(interaction.guild.id)),
+    await asyncio.to_thread(
+        convex_db.criar_evento,
+        str(discord_event.id), filme_id, titulo,
+        dt.isoformat(), str(canal.id), str(interaction.guild.id),
     )
-    conn.commit()
-    conn.close()
 
     # Só o link: o Discord gera o preview nativo do evento (capa, Interessado, etc.)
     await interaction.followup.send(discord_event.url)
@@ -702,14 +622,14 @@ async def criar_evento_cmd(
 async def excluir_evento_cmd(interaction: discord.Interaction, filme: str):
     await interaction.response.defer()
 
-    row = _get_evento_ativo_por_titulo(filme)
+    row = await _get_evento_ativo_por_titulo(filme)
     if not row:
         await interaction.followup.send(
             f"❌ Nenhuma sessão ativa encontrada para **{filme}**."
         )
         return
 
-    evento_id, discord_event_id, titulo, data_evento = row
+    discord_event_id, titulo = row["discord_event_id"], row["titulo"]
 
     try:
         discord_event = await interaction.guild.fetch_scheduled_event(int(discord_event_id))
@@ -720,13 +640,7 @@ async def excluir_evento_cmd(interaction: discord.Interaction, filme: str):
         await interaction.followup.send(f"❌ Erro ao cancelar no Discord: {e}")
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "UPDATE eventos SET status='cancelado' WHERE id=?",
-        (evento_id,),
-    )
-    conn.commit()
-    conn.close()
+    await asyncio.to_thread(convex_db.set_evento_status, discord_event_id, "cancelado")
 
     await interaction.followup.send(
         f"🗑️ Sessão de **{titulo}** cancelada com sucesso."
@@ -735,24 +649,13 @@ async def excluir_evento_cmd(interaction: discord.Interaction, filme: str):
 
 @excluir_evento_cmd.autocomplete("filme")
 async def excluir_evento_autocomplete(interaction: discord.Interaction, current: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    if current:
-        cursor.execute(
-            "SELECT titulo, data_evento FROM eventos "
-            "WHERE status IN ('agendado', 'ativo') AND titulo LIKE ? "
-            "ORDER BY id DESC LIMIT 8",
-            (f"%{current}%",),
-        )
-    else:
-        cursor.execute(
-            "SELECT titulo, data_evento FROM eventos "
-            "WHERE status IN ('agendado', 'ativo') ORDER BY id DESC LIMIT 8"
-        )
-    rows = cursor.fetchall()
-    conn.close()
+    rows = await asyncio.to_thread(
+        convex_db.list_eventos_ativos, current or None, 8
+    )
     choices = []
-    for titulo, data_evento in rows:
+    for r in rows:
+        titulo = r.get("titulo", "")
+        data_evento = r.get("data_evento", "")
         label = titulo[:80]
         if data_evento:
             label = f"{titulo[:60]} ({data_evento[:10]})"[:100]
@@ -762,71 +665,44 @@ async def excluir_evento_autocomplete(interaction: discord.Interaction, current:
 
 @criar_evento_cmd.autocomplete('filme')
 async def evento_filme_autocomplete(interaction: discord.Interaction, current: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     if current:
-        cursor.execute(
-            "SELECT titulo FROM listas WHERE titulo LIKE ? ORDER BY id DESC LIMIT 8",
-            (f'%{current}%',)
-        )
+        titulos = await asyncio.to_thread(convex_db.search_titulos, current, 8)
     else:
-        cursor.execute(
-            "SELECT titulo FROM listas WHERE status='watchlist' ORDER BY id DESC LIMIT 8"
-        )
-    rows = cursor.fetchall()
-    conn.close()
-    return [app_commands.Choice(name=r[0][:100], value=r[0][:100]) for r in rows]
+        titulos = await asyncio.to_thread(convex_db.list_titulos_by_status, "watchlist")
+        titulos = titulos[:8]
+    return [app_commands.Choice(name=t[:100], value=t[:100]) for t in titulos]
 
 
 # ================================================================
 # RASTREAMENTO DE EVENTOS
 # ================================================================
 
-def _upsert_participante(evento_id: int, user_id: str, username: str, **flags):
-    conn   = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    sets   = ', '.join(f"{k}={v}" for k, v in flags.items())
-    cursor.execute(
-        f"INSERT INTO evento_participantes (evento_id, user_id, username, {', '.join(flags)}) "
-        f"VALUES (?, ?, ?, {', '.join('?' for _ in flags)}) "
-        f"ON CONFLICT(evento_id, user_id) DO UPDATE SET {sets}",
-        (evento_id, user_id, username, *flags.values()),
+async def _upsert_participante(discord_event_id: str, user_id: str, username: str, **flags):
+    await asyncio.to_thread(
+        convex_db.upsert_participante, str(discord_event_id), str(user_id), username, **flags
     )
-    conn.commit()
-    conn.close()
 
 
-def _get_evento_by_discord_id(discord_event_id: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, filme_id, titulo, canal_id, canal_temporario "
-        "FROM eventos WHERE discord_event_id=?",
-        (str(discord_event_id),)
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row
+async def _get_evento_by_discord_id(discord_event_id: str):
+    return await asyncio.to_thread(convex_db.get_evento_by_discord, str(discord_event_id))
 
 
 @bot.event
 async def on_scheduled_event_user_add(event: discord.ScheduledEvent, user: discord.User):
     """Usuário marcou Interessado no evento."""
-    row = _get_evento_by_discord_id(event.id)
+    row = await _get_evento_by_discord_id(event.id)
     if not row:
         return
-    evento_id = row[0]
-    _upsert_participante(evento_id, str(user.id), user.name, interessado=1)
+    await _upsert_participante(str(event.id), str(user.id), user.name, interessado=1)
 
 
 @bot.event
 async def on_scheduled_event_user_remove(event: discord.ScheduledEvent, user: discord.User):
     """Usuário removeu o Interessado."""
-    row = _get_evento_by_discord_id(event.id)
+    row = await _get_evento_by_discord_id(event.id)
     if not row:
         return
-    evento_id = row[0]
-    _upsert_participante(evento_id, str(user.id), user.name, interessado=0)
+    await _upsert_participante(str(event.id), str(user.id), user.name, interessado=0)
 
 
 @bot.event
@@ -838,17 +714,12 @@ async def on_voice_state_update(
     """Rastreia entrada em canal de voz durante evento ativo."""
     if not after.channel:
         return
-    conn   = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM eventos WHERE canal_id=? AND status IN ('agendado','ativo')",
-        (str(after.channel.id),)
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
+    evento = await asyncio.to_thread(convex_db.get_evento_ativo_by_canal, str(after.channel.id))
+    if not evento:
         return
-    _upsert_participante(row[0], str(member.id), member.name, entrou_canal=1)
+    await _upsert_participante(
+        evento["discord_event_id"], str(member.id), member.name, entrou_canal=1
+    )
 
 
 @bot.event
@@ -859,23 +730,16 @@ async def on_scheduled_event_update(
     """Quando o evento termina, registra quem assistiu."""
     if after.status != discord.EventStatus.completed:
         return
-    row = _get_evento_by_discord_id(after.id)
+    row = await _get_evento_by_discord_id(after.id)
     if not row:
         return
-    evento_id, filme_id, titulo, _canal_id, _canal_temp = row
-
-    conn   = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    filme_id, titulo = row["filme_id"], row["titulo"]
 
     # Quem entrou no canal durante o evento
-    cursor.execute(
-        "SELECT user_id, username FROM evento_participantes "
-        "WHERE evento_id=? AND entrou_canal=1",
-        (evento_id,)
-    )
-    participantes = cursor.fetchall()
+    participantes = await asyncio.to_thread(convex_db.list_entrou, str(after.id))
 
-    for user_id, username in participantes:
+    for p in participantes:
+        user_id, username = p["user_id"], p["username"]
         # Tenta buscar avatar via guild member
         avatar = None
         try:
@@ -885,31 +749,16 @@ async def on_scheduled_event_update(
         except Exception:
             pass
 
-        cursor.execute(
-            "INSERT OR IGNORE INTO usuarios_assistidos "
-            "(filme_id, user_id, username, display_name, avatar, source) "
-            "VALUES (?, ?, ?, ?, ?, 'evento')",
-            (filme_id, user_id, username, username, avatar),
+        await asyncio.to_thread(
+            convex_db.add_assistido,
+            filme_id, user_id, username, username, avatar, "evento",
         )
 
     # Sincroniza listas: marca o filme como assistido
-    cursor.execute("SELECT status FROM listas WHERE filme_id=?", (filme_id,))
-    row = cursor.fetchone()
-    if row:
-        cursor.execute(
-            "UPDATE listas SET status='assistido' WHERE filme_id=?", (filme_id,)
-        )
-    else:
-        cursor.execute(
-            "INSERT INTO listas (user_id, filme_id, titulo, status) VALUES ('evento', ?, ?, 'assistido')",
-            (filme_id, titulo)
-        )
+    await asyncio.to_thread(convex_db.marcar_assistido, "evento", filme_id, titulo)
 
-    cursor.execute(
-        "UPDATE eventos SET status='encerrado' WHERE id=?", (evento_id,)
-    )
-    conn.commit()
-    conn.close()
+    # Encerra o evento
+    await asyncio.to_thread(convex_db.set_evento_status, str(after.id), "encerrado")
 
     # Notifica no canal de texto padrão
     channel = after.guild.system_channel or next(
@@ -917,7 +766,7 @@ async def on_scheduled_event_update(
         None
     )
     if channel and participantes:
-        nomes = ', '.join(f'<@{uid}>' for uid, _ in participantes)
+        nomes = ', '.join(f'<@{p["user_id"]}>' for p in participantes)
         await channel.send(
             f"✅ Sessão de **{titulo}** encerrada! "
             f"Registrado como assistido para: {nomes}"

@@ -1,14 +1,12 @@
-from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for, Response
-import sqlite3
+from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for
 import requests
 import re
 import os
 import time
 import random
-import json
 import urllib.parse
 
-from db_utils import export_database, get_db_path, import_database, init_db
+import convex_db
 
 try:
     from dotenv import load_dotenv
@@ -25,13 +23,9 @@ OMDB_KEY             = os.environ.get('OMDB_API_KEY', '')
 DISCORD_CLIENT_ID    = os.environ.get('DISCORD_CLIENT_ID', '')
 DISCORD_CLIENT_SECRET= os.environ.get('DISCORD_CLIENT_SECRET', '')
 DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'http://localhost:5000/auth/callback')
-DB_PATH              = get_db_path()
 
 _cache: dict = {}
 _TTL = 3600  # 1 hour
-
-
-init_db()
 
 
 @app.context_processor
@@ -385,11 +379,8 @@ PER_PAGE = 12
 
 def _get_db_rows():
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        watchlist  = conn.execute("SELECT * FROM listas WHERE status='watchlist'  ORDER BY id DESC").fetchall()
-        assistidos = conn.execute("SELECT * FROM listas WHERE status='assistido'  ORDER BY id DESC").fetchall()
-        conn.close()
+        watchlist  = convex_db.list_by_status('watchlist')
+        assistidos = convex_db.list_by_status('assistido')
         return list(watchlist), list(assistidos)
     except Exception:
         return [], []
@@ -399,14 +390,7 @@ def _get_db_page(status: str, page: int):
     """Retorna (rows, total) paginado para uma seção do DB."""
     offset = (page - 1) * PER_PAGE
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        total = conn.execute("SELECT COUNT(*) FROM listas WHERE status=?", (status,)).fetchone()[0]
-        rows  = conn.execute(
-            "SELECT * FROM listas WHERE status=? ORDER BY id DESC LIMIT ? OFFSET ?",
-            (status, PER_PAGE, offset)
-        ).fetchall()
-        conn.close()
+        rows, total = convex_db.list_by_status_paginated(status, PER_PAGE, offset)
         return list(rows), total
     except Exception:
         return [], 0
@@ -467,18 +451,9 @@ def _fetch_recomendacoes_api(target: int = 60) -> list:
 
     # Carrega IDs excluídos sempre (podem mudar entre requisições)
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        vistos_ids = [r[0] for r in conn.execute(
-            "SELECT filme_id FROM listas WHERE status='assistido'"
-        ).fetchall()]
-        known_ids = set(r[0] for r in conn.execute(
-            "SELECT DISTINCT filme_id FROM listas"
-        ).fetchall())
-        known_ids |= set(r[0] for r in conn.execute(
-            "SELECT DISTINCT filme_id FROM usuarios_assistidos"
-        ).fetchall())
-        conn.close()
+        vistos_ids = convex_db.filme_ids_by_status('assistido')
+        known_ids = convex_db.distinct_filme_ids()
+        known_ids |= convex_db.distinct_assistidos_filme_ids()
     except Exception:
         vistos_ids, known_ids = [], set()
 
@@ -578,17 +553,9 @@ def get_recomendacoes(n=6) -> list:
 
     # IDs já conhecidos (fila + assistidos + marcados por usuários)
     try:
-        conn = sqlite3.connect(DB_PATH)
-        known_ids = set(
-            r[0] for r in conn.execute("SELECT filme_id FROM listas").fetchall()
-        )
-        known_ids |= set(
-            r[0] for r in conn.execute(
-                "SELECT DISTINCT filme_id FROM usuarios_assistidos"
-            ).fetchall()
-        )
+        known_ids = convex_db.distinct_filme_ids()
+        known_ids |= convex_db.distinct_assistidos_filme_ids()
         listas_ids = list(known_ids)[:15]  # limita API calls
-        conn.close()
     except Exception:
         listas_ids, known_ids = [], set()
 
@@ -666,15 +633,7 @@ def _avatar_url(user_id: str, avatar: str | None) -> str:
 
 def _get_assistidos(imdb_id: str) -> list:
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT user_id, username, display_name, avatar, source, data_assistido "
-            "FROM usuarios_assistidos WHERE filme_id=? ORDER BY data_assistido ASC",
-            (imdb_id,)
-        ).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        return convex_db.list_assistidos(imdb_id)
     except Exception:
         return []
 
@@ -751,48 +710,24 @@ def api_assistido_toggle():
     if not imdb_id:
         return jsonify({'error': 'missing_imdb_id'}), 400
 
-    conn   = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
-        (imdb_id, session['user_id'])
-    )
-    already = cursor.fetchone()
+    user_id = session['user_id']
+    already = convex_db.exists_assistido(imdb_id, user_id)
 
     if already:
         # Desmarca
-        cursor.execute(
-            "DELETE FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
-            (imdb_id, session['user_id'])
-        )
+        convex_db.remove_assistido(imdb_id, user_id)
         watched = False
     else:
         # Marca
-        cursor.execute(
-            "INSERT OR IGNORE INTO usuarios_assistidos "
-            "(filme_id, user_id, username, display_name, avatar, source) "
-            "VALUES (?, ?, ?, ?, ?, 'manual')",
-            (imdb_id, session['user_id'],
-             session.get('username'), session.get('display_name'), session.get('avatar'))
+        convex_db.add_assistido(
+            imdb_id, user_id,
+            session.get('username'), session.get('display_name'),
+            session.get('avatar'), 'manual',
         )
         # Sincroniza com listas (aparece em "Já Vistos" na home)
-        cursor.execute("SELECT status FROM listas WHERE filme_id=?", (imdb_id,))
-        row = cursor.fetchone()
-        if row:
-            if row[0] == 'watchlist':
-                cursor.execute(
-                    "UPDATE listas SET status='assistido' WHERE filme_id=?", (imdb_id,)
-                )
-        else:
-            cursor.execute(
-                "INSERT INTO listas (user_id, filme_id, titulo, status) "
-                "VALUES (?, ?, ?, 'assistido')",
-                (session['user_id'], imdb_id, titulo)
-            )
+        convex_db.marcar_assistido(user_id, imdb_id, titulo)
         watched = True
 
-    conn.commit()
-    conn.close()
     return jsonify({'watched': watched})
 
 
@@ -805,37 +740,14 @@ def api_fila_adicionar():
         return jsonify({'error': 'missing_imdb_id'}), 400
 
     user_id = session.get('user_id')
-    conn    = sqlite3.connect(DB_PATH)
 
     # Regra: usuário logado que já assistiu não pode adicionar à fila
-    if user_id and conn.execute(
-        "SELECT 1 FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
-        (imdb_id, user_id)
-    ).fetchone():
-        conn.close()
+    if user_id and convex_db.exists_assistido(imdb_id, user_id):
         return jsonify({'error': 'already_watched'}), 403
 
-    row = conn.execute(
-        "SELECT status FROM listas WHERE filme_id=?", (imdb_id,)
-    ).fetchone()
-    if row:
-        if row[0] == 'watchlist':
-            conn.close()
-            return jsonify({'in_fila': True, 'already': True})
-        # status='assistido' → volta para fila
-        conn.execute(
-            "UPDATE listas SET status='watchlist' WHERE filme_id=?", (imdb_id,)
-        )
-        conn.commit()
-        conn.close()
-        return jsonify({'in_fila': True})
-
-    conn.execute(
-        "INSERT INTO listas (user_id, filme_id, titulo, status) VALUES (?, ?, ?, 'watchlist')",
-        (user_id or 'anon', imdb_id, titulo)
-    )
-    conn.commit()
-    conn.close()
+    res = convex_db.adicionar_fila(user_id or 'anon', imdb_id, titulo)
+    if res.get('already'):
+        return jsonify({'in_fila': True, 'already': True})
     return jsonify({'in_fila': True})
 
 
@@ -846,17 +758,11 @@ def api_fila_remover():
     if not imdb_id:
         return jsonify({'error': 'missing_imdb_id'}), 400
 
-    conn = sqlite3.connect(DB_PATH)
-    row  = conn.execute(
-        "SELECT status FROM listas WHERE filme_id=?", (imdb_id,)
-    ).fetchone()
-    if not row or row[0] != 'watchlist':
-        conn.close()
+    status = convex_db.get_status_by_filme(imdb_id)
+    if status != 'watchlist':
         return jsonify({'error': 'not_in_fila'}), 400
 
-    conn.execute("DELETE FROM listas WHERE filme_id=? AND status='watchlist'", (imdb_id,))
-    conn.commit()
-    conn.close()
+    convex_db.remove_by_filme_status(imdb_id, 'watchlist')
     return jsonify({'in_fila': False})
 
 
@@ -878,17 +784,13 @@ def filme_page(imdb_id):
     if not info:
         # Fallback: monta info mínima a partir da listas
         try:
-            conn = sqlite3.connect(DB_PATH)
-            row = conn.execute(
-                "SELECT titulo FROM listas WHERE filme_id=?", (imdb_id,)
-            ).fetchone()
-            conn.close()
+            titulo = convex_db.get_titulo_by_filme(imdb_id)
         except Exception:
-            row = None
-        if not row:
+            titulo = None
+        if not titulo:
             abort(404)
         info = {
-            'imdb_id': imdb_id, 'titulo': row[0], 'poster': '',
+            'imdb_id': imdb_id, 'titulo': titulo, 'poster': '',
             'ano': '', 'nota': '', 'sinopse': '', 'duracao': None,
             'diretor': '', 'generos': [], 'elenco': [], 'rated': '',
             'pais': '', 'ratings': {}, 'streaming': [], 'trailer_id': '',
@@ -896,17 +798,9 @@ def filme_page(imdb_id):
         }
     user_watched = False
     in_fila      = False
-    conn = sqlite3.connect(DB_PATH)
     if 'user_id' in session:
-        user_watched = bool(conn.execute(
-            "SELECT 1 FROM usuarios_assistidos WHERE filme_id=? AND user_id=?",
-            (imdb_id, session['user_id'])
-        ).fetchone())
-    row = conn.execute(
-        "SELECT status FROM listas WHERE filme_id=?", (imdb_id,)
-    ).fetchone()
-    in_fila = bool(row and row[0] == 'watchlist')
-    conn.close()
+        user_watched = convex_db.exists_assistido(imdb_id, session['user_id'])
+    in_fila = convex_db.get_status_by_filme(imdb_id) == 'watchlist'
     return render_template('filme.html', filme=info,
                            user_watched=user_watched, in_fila=in_fila)
 
@@ -961,31 +855,6 @@ def busca_page():
     query = (request.args.get('q') or '').strip()
     resultados = search_imdb_movies(query, limit=24) if len(query) >= 2 else []
     return render_template('busca.html', query=query, resultados=resultados)
-
-
-@app.route('/api/dados/export')
-def api_dados_export():
-    payload = export_database()
-    return Response(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        mimetype="application/json",
-        headers={
-            "Content-Disposition": 'attachment; filename="cine-backup.json"',
-        },
-    )
-
-
-@app.route('/api/dados/import', methods=['POST'])
-def api_dados_import():
-    try:
-        if request.files.get("file"):
-            payload = json.load(request.files["file"])
-        else:
-            payload = request.get_json(force=True)
-        counts = import_database(payload, replace=True)
-        return jsonify({"ok": True, "counts": counts})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 if __name__ == '__main__':

@@ -1,0 +1,13 @@
+{
+  "name": "bot-film-convex",
+  "version": "1.0.0",
+  "description": "Backend Convex para o Cine do Botecao (bot Discord + site Flask)",
+  "private": true,
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy"
+  },
+  "dependencies": {
+    "convex": "^1.17.0"
+  }
+}
