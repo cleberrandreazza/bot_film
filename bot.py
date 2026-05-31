@@ -359,33 +359,6 @@ async def _sorteio(send):
         await send(f"🎲 O sorteado foi: **{titulo}** — hora de assistir!")
 
 
-async def _dica(send):
-    await send("🧠 Sorteando uma recomendação de peso no acervo do IMDb...")
-    filmes_pool = [
-        'tt0111161', 'tt0468569', 'tt1375666', 'tt0137523', 'tt0110912',
-        'tt0816692', 'tt0109830', 'tt0068646', 'tt6751668', 'tt0499549',
-        'tt1160419', 'tt2382320', 'tt0848228', 'tt7286456', 'tt1877830',
-        'tt0087332', 'tt0361748', 'tt0993846', 'tt15314262', 'tt11358390',
-        'tt2119532', 'tt9362722', 'tt3501632', 'tt12555530', 'tt1630029',
-        'tt1517268', 'tt10872600', 'tt1345836', 'tt2049555', 'tt10655866'
-    ]
-    id_sorteado = random.choice(filmes_pool)
-    filme = buscar_imdb_por_id(id_sorteado)
-
-    if filme:
-        embed = discord.Embed(
-            title=f"🎬 Sugestão: {filme['titulo']} ({filme['ano']})",
-            description=f"**Estrelando:** {filme['elenco']}\n\nQue tal reunir a galera do servidor para assistir esse título hoje?",
-            color=0x9b59b6
-        )
-        embed.add_field(name="🔗 Link IMDb", value=f"https://www.imdb.com/title/{filme['id']}/")
-        if filme['capa']:
-            embed.set_image(url=filme['capa'])
-        await send(embed=embed)
-    else:
-        await send("❌ Tive um problema ao sortear a dica. Tente novamente!")
-
-
 # ================================================================
 # COMANDOS DE PREFIXO ($)
 # ================================================================
@@ -419,7 +392,6 @@ async def cmd_biblioteca(ctx):
     )
     embed.add_field(name="📋 Na Fila",        value="Filmes aguardando sessão",       inline=True)
     embed.add_field(name="✅ Já Vistos",       value="Histórico do grupo",             inline=True)
-    embed.add_field(name="⭐ Recomendações",   value="Sugestões baseadas no histórico", inline=True)
     await ctx.send(embed=embed)
 
 
@@ -436,7 +408,6 @@ async def slash_biblioteca(interaction: discord.Interaction):
     )
     embed.add_field(name="📋 Na Fila",        value="Filmes aguardando sessão",       inline=True)
     embed.add_field(name="✅ Já Vistos",       value="Histórico do grupo",             inline=True)
-    embed.add_field(name="⭐ Recomendações",   value="Sugestões baseadas no histórico", inline=True)
     await interaction.response.send_message(embed=embed)
 
 

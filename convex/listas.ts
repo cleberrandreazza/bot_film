@@ -1,11 +1,45 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { Doc } from "./_generated/dataModel";
 
 // Funcoes publicas: o cliente Python (bot/site) chama via CONVEX_URL.
 // Sem auth de usuario final (backend confiavel) — dados de baixa sensibilidade.
 
 function norm(s: string): string {
   return (s || "").trim().toLowerCase();
+}
+
+function nowStr(): string {
+  return new Date().toISOString().slice(0, 19).replace("T", " ");
+}
+
+/** Ordena watchlist por adição recente; assistidos por data em que foram vistos. */
+async function sortListasRows(
+  ctx: QueryCtx,
+  rows: Doc<"listas">[],
+  status: string,
+): Promise<Doc<"listas">[]> {
+  if (status !== "assistido") {
+    return [...rows].sort((a, b) => b._creationTime - a._creationTime);
+  }
+
+  // Fallback para registros legados sem assistido_em: usa a data mais recente
+  // em usuarios_assistidos para aquele filme.
+  const assistidosUsers = await ctx.db.query("usuarios_assistidos").collect();
+  const maxByFilme = new Map<string, string>();
+  for (const u of assistidosUsers) {
+    const d = u.data_assistido || "";
+    const cur = maxByFilme.get(u.filme_id);
+    if (!cur || d > cur) maxByFilme.set(u.filme_id, d);
+  }
+
+  return [...rows].sort((a, b) => {
+    const ta = a.assistido_em || maxByFilme.get(a.filme_id) || "";
+    const tb = b.assistido_em || maxByFilme.get(b.filme_id) || "";
+    const cmp = tb.localeCompare(ta);
+    if (cmp !== 0) return cmp;
+    return b._creationTime - a._creationTime;
+  });
 }
 
 export const getByFilme = query({
@@ -35,20 +69,22 @@ export const listByStatus = query({
     const rows = await ctx.db
       .query("listas")
       .withIndex("by_status", (q) => q.eq("status", args.status))
-      .order("desc")
       .collect();
-    return rows;
+    return sortListasRows(ctx, rows, args.status);
   },
 });
 
 export const listByStatusPaginated = query({
   args: { status: v.string(), limit: v.number(), offset: v.number() },
   handler: async (ctx, args) => {
-    const all = await ctx.db
-      .query("listas")
-      .withIndex("by_status", (q) => q.eq("status", args.status))
-      .order("desc")
-      .collect();
+    const all = await sortListasRows(
+      ctx,
+      await ctx.db
+        .query("listas")
+        .withIndex("by_status", (q) => q.eq("status", args.status))
+        .collect(),
+      args.status,
+    );
     const total = all.length;
     const rows = all.slice(args.offset, args.offset + args.limit);
     return { rows, total };
@@ -66,11 +102,14 @@ export const searchByTitulo = query({
     const needle = norm(args.titulo);
     let rows;
     if (args.status) {
-      rows = await ctx.db
-        .query("listas")
-        .withIndex("by_status", (q) => q.eq("status", args.status as string))
-        .order("desc")
-        .collect();
+      rows = await sortListasRows(
+        ctx,
+        await ctx.db
+          .query("listas")
+          .withIndex("by_status", (q) => q.eq("status", args.status as string))
+          .collect(),
+        args.status as string,
+      );
     } else {
       rows = await ctx.db.query("listas").order("desc").collect();
     }
@@ -145,8 +184,18 @@ export const setStatus = mutation({
       .query("listas")
       .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
       .collect();
+    const patch: { status: string; assistido_em?: string } = {
+      status: args.status,
+    };
+    if (args.status === "assistido") {
+      patch.assistido_em = nowStr();
+    }
     for (const r of rows) {
-      await ctx.db.patch(r._id, { status: args.status });
+      if (args.status === "watchlist") {
+        await ctx.db.patch(r._id, { status: args.status, assistido_em: undefined });
+      } else {
+        await ctx.db.patch(r._id, patch);
+      }
     }
     return rows.length;
   },
@@ -165,7 +214,10 @@ export const marcarAssistido = mutation({
       .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
       .first();
     if (existing) {
-      await ctx.db.patch(existing._id, { status: "assistido" });
+      await ctx.db.patch(existing._id, {
+        status: "assistido",
+        assistido_em: nowStr(),
+      });
       return { inserted: false };
     }
     await ctx.db.insert("listas", {
@@ -173,6 +225,7 @@ export const marcarAssistido = mutation({
       filme_id: args.filme_id,
       titulo: args.titulo,
       status: "assistido",
+      assistido_em: nowStr(),
     });
     return { inserted: true };
   },
@@ -194,7 +247,10 @@ export const adicionarFila = mutation({
       if (existing.status === "watchlist") {
         return { in_fila: true, already: true };
       }
-      await ctx.db.patch(existing._id, { status: "watchlist" });
+      await ctx.db.patch(existing._id, {
+        status: "watchlist",
+        assistido_em: undefined,
+      });
       return { in_fila: true, already: false };
     }
     await ctx.db.insert("listas", {

@@ -9,6 +9,7 @@ export default defineSchema({
     filme_id: v.string(),
     titulo: v.string(),
     status: v.string(), // "watchlist" | "assistido"
+    assistido_em: v.optional(v.string()), // "YYYY-MM-DD HH:MM:SS" UTC — quando virou assistido
   })
     .index("by_filme", ["filme_id"])
     .index("by_status", ["status"]),

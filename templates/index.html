@@ -97,30 +97,4 @@
   </div>
 </section>
 
-<!-- RECOMENDAÇÕES -->
-<section class="films-section" id="recomendacoes">
-  <div class="container">
-    <div class="section-header">
-      <h2><span class="pill pill--orange">Recomendações</span></h2>
-      <span class="section-count">da lista do grupo, ainda não assistidos</span>
-      <a href="/filmes/recomendacoes" class="ver-todos-btn">Ver Todos ›</a>
-    </div>
-    <div class="films-grid films-grid--6">
-      {% for f in recomendacoes %}
-      <a href="/filme/{{ f.imdb_id }}" class="film-card">
-        <div class="poster-wrap">
-          {% if f.poster %}
-          <img class="poster-img loaded" src="{{ f.poster }}" alt="{{ f.titulo }}" loading="lazy" />
-          {% endif %}
-        </div>
-        <div class="card-hover">
-          <span class="card-title">{{ f.titulo }}</span>
-          <span class="card-year">{{ f.ano }}</span>
-        </div>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-</section>
-
 {% endblock %}
