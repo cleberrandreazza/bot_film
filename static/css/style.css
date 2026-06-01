@@ -663,7 +663,7 @@ code {
 
 /* ── ASSISTIDO POR ──────────────────────────────────────────────────────── */
 .assistido-header {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px;
 }
 
 .watch-toggle-btn {
