@@ -19,6 +19,15 @@
         <a href="/#fila">Na Fila</a>
         <a href="/#vistos">Já Vistos</a>
       </nav>
+      <div class="header-auth">
+        {% if current_user %}
+        <img class="header-auth__avatar" src="{{ current_user.avatar_url }}" alt="" width="28" height="28" />
+        <span class="header-auth__name">{{ current_user.display_name }}</span>
+        <a href="/auth/logout?next=/" class="header-auth__btn header-auth__btn--logout">Sair</a>
+        {% else %}
+        <a href="/auth/login" class="header-auth__btn header-auth__btn--login">Entrar com Discord</a>
+        {% endif %}
+      </div>
     </div>
   </header>
 

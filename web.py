@@ -27,6 +27,13 @@ _cache: dict = {}
 _TTL = 3600  # 1 hour
 
 
+def _avatar_url(user_id: str, avatar: str | None) -> str:
+    if avatar:
+        return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=64"
+    idx = (int(user_id) >> 22) % 6
+    return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
+
+
 @app.context_processor
 def inject_user():
     u = None
@@ -36,6 +43,7 @@ def inject_user():
             'username':     session.get('username', ''),
             'display_name': session.get('display_name', session.get('username', '')),
             'avatar':       session.get('avatar'),
+            'avatar_url':   _avatar_url(session['user_id'], session.get('avatar')),
         }
     return {'current_user': u}
 
@@ -404,13 +412,6 @@ def _omdb_basic(iid: str) -> dict | None:
 
 # ─────────────────────────────── helpers ──
 
-def _avatar_url(user_id: str, avatar: str | None) -> str:
-    if avatar:
-        return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=64"
-    idx = (int(user_id) >> 22) % 6
-    return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
-
-
 def _get_assistidos(imdb_id: str) -> list:
     try:
         return convex_db.list_assistidos(imdb_id)
@@ -465,7 +466,9 @@ def auth_callback():
 
 @app.route('/auth/logout')
 def auth_logout():
-    next_url = request.referrer or '/'
+    next_url = request.args.get('next') or request.referrer or '/'
+    if not next_url.startswith('/'):
+        next_url = '/'
     session.clear()
     return redirect(next_url)
 
@@ -595,6 +598,7 @@ def lista_completa(secao):
     page  = max(1, int(request.args.get('page', 1)))
     status, titulo, _ = SECOES[secao]
     rows, total = _get_db_page(status, page)
+    total = int(total)
     filmes = _enrich_rows(rows)
     total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
     return render_template('lista.html',

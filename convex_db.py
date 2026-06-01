@@ -136,7 +136,7 @@ def list_by_status_paginated(status: str, limit: int, offset: int) -> tuple[list
     res = _q("listas:listByStatusPaginated", {
         "status": status, "limit": limit, "offset": offset,
     }) or {"rows": [], "total": 0}
-    return res.get("rows", []), res.get("total", 0)
+    return res.get("rows", []), int(res.get("total", 0) or 0)
 
 
 def list_watchlist_filmes() -> list[tuple[str, str]]:
