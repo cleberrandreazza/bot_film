@@ -278,12 +278,16 @@ def sinopse_para_filme(
     imdb_id: str = "",
 ) -> str:
     """
-    Ordem: Wikipedia PT (validada) → IMDb PT (imdb.com/pt) → OMDB Plot.
+    Com imdb_id: IMDb PT (imdb.com/pt) → Wikipedia → OMDB.
+    Sem imdb_id: Wikipedia → OMDB.
     """
+    if _normalizar_imdb_id(imdb_id):
+        imdb_pt = buscar_sinopse_imdb_pt(imdb_id)
+        if imdb_pt:
+            return imdb_pt
+
     pt = buscar_sinopse_pt(titulo, ano, titulo_omdb)
     if pt:
         return pt
-    imdb_pt = buscar_sinopse_imdb_pt(imdb_id)
-    if imdb_pt:
-        return imdb_pt
+
     return (sinopse_omdb or "").strip()
