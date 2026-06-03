@@ -419,6 +419,27 @@ def _get_assistidos(imdb_id: str) -> list:
         return []
 
 
+def _get_adicionado_por(imdb_id: str) -> dict | None:
+    try:
+        row = convex_db.get_adicionado_por(imdb_id)
+    except Exception:
+        return None
+    if not row:
+        return None
+    row['avatar_url'] = _avatar_url(row['user_id'], row.get('avatar'))
+    return row
+
+
+def _session_profile() -> dict:
+    if 'user_id' not in session:
+        return {}
+    return {
+        'username': session.get('username'),
+        'display_name': session.get('display_name'),
+        'avatar': session.get('avatar'),
+    }
+
+
 # ─────────────────────────────── OAuth2 routes ──
 
 @app.route('/auth/login')
@@ -483,6 +504,14 @@ def api_assistidos(imdb_id):
     return jsonify(rows)
 
 
+@app.route('/api/fila/adicionado-por/<imdb_id>')
+def api_adicionado_por(imdb_id):
+    row = _get_adicionado_por(imdb_id)
+    if not row:
+        return jsonify(None)
+    return jsonify(row)
+
+
 @app.route('/api/assistido/toggle', methods=['POST'])
 def api_assistido_toggle():
     if 'user_id' not in session:
@@ -508,7 +537,9 @@ def api_assistido_toggle():
             session.get('avatar'), 'manual',
         )
         # Sincroniza com listas (aparece em "Já Vistos" na home)
-        convex_db.marcar_assistido(user_id, imdb_id, titulo)
+        convex_db.marcar_assistido(
+            user_id, imdb_id, titulo, **_session_profile(),
+        )
         watched = True
 
     return jsonify({'watched': watched})
@@ -528,7 +559,10 @@ def api_fila_adicionar():
     if user_id and convex_db.exists_assistido(imdb_id, user_id):
         return jsonify({'error': 'already_watched'}), 403
 
-    res = convex_db.adicionar_fila(user_id or 'anon', imdb_id, titulo)
+    profile = _session_profile() if user_id else {}
+    res = convex_db.adicionar_fila(
+        user_id or 'anon', imdb_id, titulo, **profile,
+    )
     if res.get('already'):
         return jsonify({'in_fila': True, 'already': True})
     return jsonify({'in_fila': True})

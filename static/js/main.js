@@ -58,6 +58,36 @@ function loadAssistidos() {
 
 if (assistidosList) loadAssistidos();
 
+/* ── Adicionado à Lista Por ───────────────────────────────── */
+const adicionadoList = document.getElementById('adicionado-list');
+
+function loadAdicionadoPor() {
+  const pathParts = window.location.pathname.split('/');
+  const id = pathParts[pathParts.length - 1];
+  if (!adicionadoList || !id) return;
+
+  fetch(`/api/fila/adicionado-por/${id}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(row => {
+      if (!row) {
+        adicionadoList.innerHTML =
+          '<span class="assistidos-empty">Este filme ainda não está na lista do grupo.</span>';
+        return;
+      }
+      const nome = row.display_name || row.username || 'Usuário';
+      adicionadoList.innerHTML = `
+        <div class="assistido-item" title="${nome}">
+          <img src="${row.avatar_url}" alt="${nome}" />
+          <span>${nome}</span>
+          ${row.na_fila ? '<span class="assistido-source assistido-source--fila">📋</span>' : ''}
+        </div>
+      `;
+    })
+    .catch(() => { adicionadoList.innerHTML = ''; });
+}
+
+if (adicionadoList) loadAdicionadoPor();
+
 if (watchToggle) {
   watchToggle.addEventListener('click', async () => {
     const imdbId  = watchToggle.dataset.imdb;
@@ -109,10 +139,15 @@ if (filaBtn) {
         filaBtn.dataset.inFila = 'true';
         filaBtn.classList.add('fila-btn--on');
         filaBtn.innerHTML = '&#10003; Na Fila &mdash; <span class="fila-btn__remove">Remover</span>';
+        loadAdicionadoPor();
       } else {
         filaBtn.dataset.inFila = 'false';
         filaBtn.classList.remove('fila-btn--on');
         filaBtn.textContent = '+ Adicionar à Fila';
+        if (adicionadoList) {
+          adicionadoList.innerHTML =
+            '<span class="assistidos-empty">Este filme ainda não está na lista do grupo.</span>';
+        }
       }
     } catch { /* noop */ } finally {
       filaBtn.disabled = false;

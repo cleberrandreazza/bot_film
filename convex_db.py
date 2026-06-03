@@ -70,27 +70,65 @@ def get_titulo_by_filme(filme_id: str) -> str | None:
     return _q("listas:getTituloByFilme", {"filme_id": filme_id})
 
 
-def add_filme(user_id: str, filme_id: str, titulo: str, status: str = "watchlist") -> dict:
-    return _m("listas:addFilme", {
+def get_adicionado_por(filme_id: str) -> dict | None:
+    return _q("listas:getAdicionadoPor", {"filme_id": filme_id})
+
+
+def add_filme(
+    user_id: str,
+    filme_id: str,
+    titulo: str,
+    status: str = "watchlist",
+    *,
+    username: str | None = None,
+    display_name: str | None = None,
+    avatar: str | None = None,
+) -> dict:
+    return _m("listas:addFilme", _clean({
         "user_id": user_id, "filme_id": filme_id,
         "titulo": titulo, "status": status,
-    })
+        "username": username,
+        "display_name": display_name,
+        "avatar": avatar,
+    }))
 
 
 def set_status(filme_id: str, status: str) -> int:
     return _m("listas:setStatus", {"filme_id": filme_id, "status": status})
 
 
-def marcar_assistido(user_id: str, filme_id: str, titulo: str) -> dict:
-    return _m("listas:marcarAssistido", {
+def marcar_assistido(
+    user_id: str,
+    filme_id: str,
+    titulo: str,
+    *,
+    username: str | None = None,
+    display_name: str | None = None,
+    avatar: str | None = None,
+) -> dict:
+    return _m("listas:marcarAssistido", _clean({
         "user_id": user_id, "filme_id": filme_id, "titulo": titulo,
-    })
+        "username": username,
+        "display_name": display_name,
+        "avatar": avatar,
+    }))
 
 
-def adicionar_fila(user_id: str, filme_id: str, titulo: str) -> dict:
-    return _m("listas:adicionarFila", {
+def adicionar_fila(
+    user_id: str,
+    filme_id: str,
+    titulo: str,
+    *,
+    username: str | None = None,
+    display_name: str | None = None,
+    avatar: str | None = None,
+) -> dict:
+    return _m("listas:adicionarFila", _clean({
         "user_id": user_id, "filme_id": filme_id, "titulo": titulo,
-    })
+        "username": username,
+        "display_name": display_name,
+        "avatar": avatar,
+    }))
 
 
 def remove_by_filme(filme_id: str) -> int:

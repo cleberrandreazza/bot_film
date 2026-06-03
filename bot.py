@@ -7,6 +7,7 @@ import random
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 
 import convex_db
@@ -56,11 +57,25 @@ def _resolve_web_url() -> str:
 WEB_URL = _resolve_web_url()
 EVENTO_VOICE_CHANNEL_ID = os.environ.get("EVENTO_VOICE_CHANNEL_ID", "").strip()
 EVENTO_VOICE_CHANNEL_NAME = os.environ.get("EVENTO_VOICE_CHANNEL_NAME", "").strip()
-EVENTO_NOTIFY_ROLE_NAME = "Cinéfilo"
+EVENTO_NOTIFY_ROLE_ID = 1508308918353526814
 OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "").strip()
 _EVENTO_DURACAO_PADRAO_MIN = 120
 _EVENTO_DURACAO_MIN_MIN = 30
 _EVENTO_DURACAO_MAX_MIN = 480
+
+_JW_GRAPHQL = "https://apis.justwatch.com/graphql"
+_JW_CARTAZ_QUERY = (
+    '{ popularTitles(country: BR, first: 6,'
+    ' filter: {searchQuery: "%s", objectTypes: [MOVIE]}) {'
+    " edges { node { __typename ... on Movie {"
+    ' content(country: BR, language: "pt") {'
+    " title externalIds { imdbId }"
+    " }"
+    " offers(country: BR, platform: WEB) { monetizationType }"
+    " } } } } }"
+)
+_CARTAZ_CACHE: dict[str, tuple[bool, float]] = {}
+_CARTAZ_CACHE_TTL = 6 * 3600
 
 
 @bot.event
@@ -153,27 +168,41 @@ def _parse_runtime_minutes(runtime: str) -> int | None:
     return None
 
 
-def buscar_duracao_filme(imdb_id: str) -> int | None:
-    """Duração em minutos via OMDB (ex.: '142 min')."""
+def _fetch_omdb(imdb_id: str) -> dict | None:
     if not OMDB_API_KEY or not imdb_id:
         return None
     try:
         resp = requests.get(
             "https://www.omdbapi.com/",
-            params={"apikey": OMDB_API_KEY, "i": imdb_id},
+            params={"apikey": OMDB_API_KEY, "i": imdb_id, "plot": "full"},
             timeout=8,
         )
         if resp.ok:
             data = resp.json()
             if data.get("Response") == "True":
-                return _parse_runtime_minutes(data.get("Runtime", ""))
+                return data
     except Exception as e:
-        print(f"[Evento] Erro ao buscar duração OMDB: {e}")
+        print(f"[Evento] Erro ao buscar OMDB: {e}")
     return None
 
 
-def _duracao_evento(imdb_id: str) -> timedelta:
-    mins = buscar_duracao_filme(imdb_id)
+def buscar_duracao_filme(imdb_id: str) -> int | None:
+    """Duração em minutos via OMDB (ex.: '142 min')."""
+    data = _fetch_omdb(imdb_id)
+    if data:
+        return _parse_runtime_minutes(data.get("Runtime", ""))
+    return None
+
+
+def _omdb_valor(val) -> str:
+    if not val or str(val).upper() == "N/A":
+        return ""
+    return str(val).strip()
+
+
+def _duracao_evento(imdb_id: str, omdb_data: dict | None = None) -> timedelta:
+    data = omdb_data or _fetch_omdb(imdb_id)
+    mins = _parse_runtime_minutes(data.get("Runtime", "")) if data else None
     if mins:
         mins = max(_EVENTO_DURACAO_MIN_MIN, min(mins, _EVENTO_DURACAO_MAX_MIN))
         return timedelta(minutes=mins)
@@ -214,9 +243,82 @@ def _baixar_imagem_evento(url: str) -> bytes | None:
         return None
 
 
+def filme_em_cartaz_br(imdb_id: str, titulo: str, ano: str = "") -> bool:
+    """True se o filme está em cartaz no Brasil (JustWatch: oferta CINEMA)."""
+    key = imdb_id or f"{titulo}:{ano}"
+    now = time.time()
+    cached = _CARTAZ_CACHE.get(key)
+    if cached and now - cached[1] < _CARTAZ_CACHE_TTL:
+        return cached[0]
+
+    busca = f"{titulo} {ano}".strip() if ano and ano != "N/A" else titulo
+    safe = busca.replace('"', '\\"')
+    try:
+        resp = requests.post(
+            _JW_GRAPHQL,
+            json={"query": _JW_CARTAZ_QUERY % safe},
+            headers={
+                "User-Agent": "JustWatch/4.0 (Android)",
+                "Content-Type": "application/json",
+            },
+            timeout=8,
+        )
+        if not resp.ok:
+            return False
+        edges = (resp.json().get("data") or {}).get("popularTitles", {}).get("edges", [])
+        em_cartaz = False
+        for edge in edges:
+            node = edge.get("node", {})
+            if node.get("__typename") != "Movie":
+                continue
+            content = node.get("content", {})
+            node_imdb = (content.get("externalIds") or {}).get("imdbId", "")
+            if imdb_id and node_imdb and node_imdb != imdb_id:
+                continue
+            for offer in node.get("offers") or []:
+                if (offer.get("monetizationType") or "").upper() == "CINEMA":
+                    em_cartaz = True
+                    break
+            if em_cartaz:
+                break
+        _CARTAZ_CACHE[key] = (em_cartaz, now)
+        return em_cartaz
+    except Exception as e:
+        print(f"[Sorteio] Erro ao consultar cartaz JustWatch: {e}")
+        return False
+
+
+def _filtrar_fila_fora_cartaz(watchlist: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], list[str]]:
+    """Separa filmes elegíveis ao sorteio e títulos em cartaz."""
+    elegiveis: list[tuple[str, str]] = []
+    em_cartaz: list[str] = []
+    for filme_id, titulo in watchlist:
+        detalhes = buscar_imdb_por_id(filme_id)
+        ano = ""
+        if detalhes:
+            ano = str(detalhes.get("ano") or "")
+            if ano == "N/A":
+                ano = ""
+        if filme_em_cartaz_br(filme_id, titulo, ano):
+            em_cartaz.append(titulo)
+        else:
+            elegiveis.append((filme_id, titulo))
+    return elegiveis, em_cartaz
+
+
 # ================================================================
 # LÓGICA DOS COMANDOS (compartilhada entre $ e /)
 # ================================================================
+
+def _discord_profile(user) -> dict:
+    display = (
+        getattr(user, "global_name", None)
+        or getattr(user, "display_name", None)
+        or user.name
+    )
+    avatar = user.avatar.key if user.avatar else None
+    return {"username": user.name, "display_name": display, "avatar": avatar}
+
 
 async def _ajuda(send):
     embed = discord.Embed(
@@ -232,7 +334,7 @@ async def _ajuda(send):
             "`/adicionar [filme]` — Adiciona um filme à fila.\n"
             "`/visto [filme]` — Marca filme como assistido.\n"
             "`/remover [filme]` — Remove filme da base.\n"
-            "`/sorteio` — Sorteia um filme da fila."
+            "`/sorteio` — Sorteia um filme da fila (ignora os em cartaz)."
         ),
         inline=False,
     )
@@ -266,7 +368,9 @@ async def _ajuda(send):
     await send(embed=embed)
 
 
-async def _adicionar(send, user_id, nome_do_filme):
+async def _adicionar(send, author, nome_do_filme):
+    user_id = str(author.id)
+    profile = _discord_profile(author)
     await send(f"🔍 Procurando **{nome_do_filme}** no IMDb...")
     filme = buscar_imdb(nome_do_filme)
     if not filme:
@@ -280,7 +384,9 @@ async def _adicionar(send, user_id, nome_do_filme):
         await send(f"⚠️ **{filme['titulo']}** já está na lista do servidor como *{status_atual}*!")
     else:
         await asyncio.to_thread(
-            convex_db.add_filme, user_id, filme['id'], filme['titulo'], "watchlist"
+            convex_db.add_filme,
+            user_id, filme['id'], filme['titulo'], "watchlist",
+            **profile,
         )
         embed = discord.Embed(
             title=f"🍿 {filme['titulo']} ({filme['ano']})",
@@ -293,7 +399,9 @@ async def _adicionar(send, user_id, nome_do_filme):
         await send(embed=embed)
 
 
-async def _visto(send, user_id, nome_do_filme):
+async def _visto(send, author, nome_do_filme):
+    user_id = str(author.id)
+    profile = _discord_profile(author)
     resultado = await asyncio.to_thread(convex_db.search_watchlist_by_titulo, nome_do_filme)
 
     if resultado:
@@ -308,7 +416,9 @@ async def _visto(send, user_id, nome_do_filme):
             return
 
         await asyncio.to_thread(
-            convex_db.marcar_assistido, user_id, filme['id'], filme['titulo']
+            convex_db.marcar_assistido,
+            user_id, filme['id'], filme['titulo'],
+            **profile,
         )
         await send(f"✅ **{filme['titulo']}** adicionado direto nos **Assistidos**!")
 
@@ -343,7 +453,23 @@ async def _sorteio(send):
         await send("❌ A fila está vazia! Use `$adicionar` ou `/adicionar` para colocar filmes na lista.")
         return
 
-    filme_id, titulo = random.choice(watchlist)
+    await send("🎲 Sorteando… (ignorando filmes em cartaz no cinema)")
+    elegiveis, em_cartaz = await asyncio.to_thread(_filtrar_fila_fora_cartaz, watchlist)
+
+    if not elegiveis:
+        if em_cartaz:
+            lista = "\n".join(f"• {t}" for t in em_cartaz[:8])
+            extra = f"\n… e mais {len(em_cartaz) - 8}" if len(em_cartaz) > 8 else ""
+            await send(
+                "❌ Todos os filmes da fila estão **em cartaz** no cinema agora.\n"
+                f"{lista}{extra}\n\n"
+                "Adicione filmes que já saíram dos cinemas ou tente de novo mais tarde."
+            )
+        else:
+            await send("❌ Não foi possível sortear agora. Tente novamente em instantes.")
+        return
+
+    filme_id, titulo = random.choice(elegiveis)
     detalhes = buscar_imdb_por_id(filme_id)
 
     if detalhes:
@@ -355,9 +481,16 @@ async def _sorteio(send):
         embed.add_field(name="🔗 Link IMDb", value=f"https://www.imdb.com/title/{detalhes['id']}/")
         if detalhes['capa']:
             embed.set_image(url=detalhes['capa'])
+        if em_cartaz:
+            embed.set_footer(
+                text=f"{len(em_cartaz)} filme(s) em cartaz foram ignorados no sorteio"
+            )
         await send(embed=embed)
     else:
-        await send(f"🎲 O sorteado foi: **{titulo}** — hora de assistir!")
+        msg = f"🎲 O sorteado foi: **{titulo}** — hora de assistir!"
+        if em_cartaz:
+            msg += f"\n_({len(em_cartaz)} em cartaz ignorados)_"
+        await send(msg)
 
 
 # ================================================================
@@ -370,11 +503,11 @@ async def cmd_ajuda(ctx):
 
 @bot.command(name="adicionar")
 async def cmd_adicionar(ctx, *, nome_do_filme: str):
-    await _adicionar(ctx.send, str(ctx.author.id), nome_do_filme)
+    await _adicionar(ctx.send, ctx.author, nome_do_filme)
 
 @bot.command(name="visto")
 async def cmd_visto(ctx, *, nome_do_filme: str):
-    await _visto(ctx.send, str(ctx.author.id), nome_do_filme)
+    await _visto(ctx.send, ctx.author, nome_do_filme)
 
 @bot.command(name="remover")
 async def cmd_remover(ctx, *, nome_do_filme: str):
@@ -421,13 +554,13 @@ async def slash_ajuda(interaction: discord.Interaction):
 @app_commands.describe(nome_do_filme="Nome do filme para buscar no IMDb")
 async def slash_adicionar(interaction: discord.Interaction, nome_do_filme: str):
     await interaction.response.defer()
-    await _adicionar(interaction.followup.send, str(interaction.user.id), nome_do_filme)
+    await _adicionar(interaction.followup.send, interaction.user, nome_do_filme)
 
 @bot.tree.command(name="visto", description="Move o filme da fila para a lista de Assistidos")
 @app_commands.describe(nome_do_filme="Nome do filme para marcar como visto")
 async def slash_visto(interaction: discord.Interaction, nome_do_filme: str):
     await interaction.response.defer()
-    await _visto(interaction.followup.send, str(interaction.user.id), nome_do_filme)
+    await _visto(interaction.followup.send, interaction.user, nome_do_filme)
 
 @bot.tree.command(name="remover", description="Remove o filme de todas as listas do servidor")
 @app_commands.describe(nome_do_filme="Nome do filme para remover")
@@ -435,7 +568,10 @@ async def slash_remover(interaction: discord.Interaction, nome_do_filme: str):
     await interaction.response.defer()
     await _remover(interaction.followup.send, nome_do_filme)
 
-@bot.tree.command(name="sorteio", description="Sorteia um filme da fila para assistir hoje")
+@bot.tree.command(
+    name="sorteio",
+    description="Sorteia um filme da fila (exclui os que estão em cartaz no cinema)",
+)
 async def slash_sorteio(interaction: discord.Interaction):
     await interaction.response.defer()
     await _sorteio(interaction.followup.send)
@@ -497,13 +633,42 @@ async def _get_evento_voice_channel(guild: discord.Guild) -> discord.VoiceChanne
     return None
 
 
-def _get_evento_notify_role(guild: discord.Guild) -> discord.Role | None:
-    """Role mencionada ao criar evento — busca pelo nome (Cinéfilo)."""
-    alvo = EVENTO_NOTIFY_ROLE_NAME.casefold()
-    for role in guild.roles:
-        if role.name.casefold() == alvo:
-            return role
-    return None
+async def _get_evento_notify_role(guild: discord.Guild) -> discord.Role | None:
+    """Role mencionada ao criar evento (ID fixo)."""
+    role = guild.get_role(EVENTO_NOTIFY_ROLE_ID)
+    if role:
+        return role
+    try:
+        return await guild.fetch_role(EVENTO_NOTIFY_ROLE_ID)
+    except (discord.NotFound, discord.HTTPException):
+        return None
+
+
+def _descricao_evento(
+    canal: discord.VoiceChannel,
+    duracao_min: int,
+    ano: str,
+    genero: str,
+    sinopse: str,
+) -> str:
+    partes = ["Sessão coletiva de cinema!"]
+    meta = []
+    if ano:
+        meta.append(f"**Ano:** {ano}")
+    if genero:
+        meta.append(f"**Gênero:** {genero}")
+    if meta:
+        partes.append(" · ".join(meta))
+    if sinopse:
+        texto = sinopse if len(sinopse) <= 600 else sinopse[:597] + "..."
+        partes.append(f"\n{texto}")
+    partes.append(
+        f"\nDuração prevista: **{_formatar_duracao(duracao_min)}**.\n\n"
+        f"Marque como **Interessado** e entre no canal **{canal.name}** "
+        f"durante o evento para registrar sua presença."
+    )
+    desc = "\n".join(partes)
+    return desc[:1000]
 
 
 async def _get_evento_ativo_por_titulo(titulo: str):
@@ -532,11 +697,15 @@ async def criar_evento_cmd(
     # Busca o filme no DB ou no IMDb
     row = await asyncio.to_thread(convex_db.search_any_by_titulo, filme)
     capa_url = ""
+    ano_imdb = ""
     if row:
         filme_id, titulo = row["filme_id"], row["titulo"]
         detalhes = buscar_imdb_por_id(filme_id)
         if detalhes:
             capa_url = detalhes.get("capa") or ""
+            ano_imdb = str(detalhes.get("ano") or "")
+            if ano_imdb == "N/A":
+                ano_imdb = ""
     else:
         found = buscar_imdb(filme)
         if not found:
@@ -544,6 +713,22 @@ async def criar_evento_cmd(
             return
         filme_id, titulo = found['id'], found['titulo']
         capa_url = found.get("capa") or ""
+        ano_imdb = str(found.get("ano") or "")
+        if ano_imdb == "N/A":
+            ano_imdb = ""
+
+    omdb_data = _fetch_omdb(filme_id)
+    if omdb_data:
+        meta = {
+            "ano": _omdb_valor(omdb_data.get("Year", ""))[:4],
+            "genero": _omdb_valor(omdb_data.get("Genre", "")),
+            "sinopse": _omdb_valor(omdb_data.get("Plot", "")),
+        }
+    else:
+        meta = {"ano": "", "genero": "", "sinopse": ""}
+    ano_evt = meta["ano"] or ano_imdb
+    genero_evt = meta["genero"]
+    sinopse_evt = meta["sinopse"]
 
     canal = await _get_evento_voice_channel(interaction.guild)
     if not canal:
@@ -553,17 +738,14 @@ async def criar_evento_cmd(
         )
         return
 
-    duracao_evento = _duracao_evento(filme_id)
+    duracao_evento = _duracao_evento(filme_id, omdb_data)
     duracao_min = int(duracao_evento.total_seconds() // 60)
 
     # Cria o evento Discord (com capa do filme, se disponível)
     event_kwargs = dict(
         name=f"🎬 {titulo}",
-        description=(
-            f"Sessão coletiva de cinema!\n\n"
-            f"Duração prevista: **{_formatar_duracao(duracao_min)}**.\n\n"
-            f"Marque como **Interessado** e entre no canal **{canal.name}** "
-            f"durante o evento para registrar sua presença."
+        description=_descricao_evento(
+            canal, duracao_min, ano_evt, genero_evt, sinopse_evt
         ),
         start_time=dt,
         end_time=dt + duracao_evento,
@@ -595,7 +777,7 @@ async def criar_evento_cmd(
     )
 
     data_fmt = dt.strftime("%d/%m/%Y às %H:%M")
-    role = _get_evento_notify_role(interaction.guild)
+    role = await _get_evento_notify_role(interaction.guild)
     if role:
         await interaction.followup.send(
             f"📅 **Novo evento de cinema!** {role.mention}\n"
@@ -603,7 +785,7 @@ async def criar_evento_cmd(
             allowed_mentions=discord.AllowedMentions(roles=True),
         )
     else:
-        print(f"[Evento] Role '{EVENTO_NOTIFY_ROLE_NAME}' não encontrada — aviso sem menção.")
+        print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
         await interaction.followup.send(
             f"📅 **Novo evento de cinema!**\n🎬 **{titulo}** — {data_fmt}"
         )

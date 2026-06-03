@@ -715,6 +715,7 @@ code {
 .assistido-source { font-size: 11px; }
 .assistido-source--evento { color: var(--orange); }
 .assistido-source--manual { color: var(--green); }
+.assistido-source--fila    { color: var(--orange); }
 
 .assistidos-empty, .assistidos-loading {
   color: var(--text-lo); font-size: 13px; font-style: italic;

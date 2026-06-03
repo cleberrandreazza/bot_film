@@ -10,6 +10,9 @@ export default defineSchema({
     titulo: v.string(),
     status: v.string(), // "watchlist" | "assistido"
     assistido_em: v.optional(v.string()), // "YYYY-MM-DD HH:MM:SS" UTC — quando virou assistido
+    username: v.optional(v.string()),
+    display_name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
   })
     .index("by_filme", ["filme_id"])
     .index("by_status", ["status"]),

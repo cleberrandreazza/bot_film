@@ -52,6 +52,42 @@ export const getByFilme = query({
   },
 });
 
+export const getAdicionadoPor = query({
+  args: { filme_id: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("listas")
+      .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
+      .first();
+    if (!row) return null;
+
+    let username = row.username ?? "";
+    let display_name = row.display_name ?? "";
+    let avatar = row.avatar ?? null;
+
+    if (!username && !display_name) {
+      const assistidos = await ctx.db.query("usuarios_assistidos").collect();
+      const match = assistidos.find((u) => u.user_id === row.user_id);
+      if (match) {
+        username = match.username ?? "";
+        display_name = match.display_name ?? "";
+        avatar = match.avatar ?? null;
+      }
+    }
+
+    const label =
+      display_name || username || `Usuário ${row.user_id.slice(-6)}`;
+
+    return {
+      user_id: row.user_id,
+      username,
+      display_name: label,
+      avatar,
+      na_fila: row.status === "watchlist",
+    };
+  },
+});
+
 export const getTituloByFilme = query({
   args: { filme_id: v.string() },
   handler: async (ctx, args) => {
@@ -158,6 +194,9 @@ export const addFilme = mutation({
     filme_id: v.string(),
     titulo: v.string(),
     status: v.string(),
+    username: v.optional(v.string()),
+    display_name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -172,6 +211,9 @@ export const addFilme = mutation({
       filme_id: args.filme_id,
       titulo: args.titulo,
       status: args.status,
+      username: args.username,
+      display_name: args.display_name,
+      avatar: args.avatar,
     });
     return { inserted: true, status: args.status };
   },
@@ -207,6 +249,9 @@ export const marcarAssistido = mutation({
     user_id: v.string(),
     filme_id: v.string(),
     titulo: v.string(),
+    username: v.optional(v.string()),
+    display_name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -226,6 +271,9 @@ export const marcarAssistido = mutation({
       titulo: args.titulo,
       status: "assistido",
       assistido_em: nowStr(),
+      username: args.username,
+      display_name: args.display_name,
+      avatar: args.avatar,
     });
     return { inserted: true };
   },
@@ -237,8 +285,16 @@ export const adicionarFila = mutation({
     user_id: v.string(),
     filme_id: v.string(),
     titulo: v.string(),
+    username: v.optional(v.string()),
+    display_name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const profile = {
+      username: args.username,
+      display_name: args.display_name,
+      avatar: args.avatar,
+    };
     const existing = await ctx.db
       .query("listas")
       .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
@@ -250,6 +306,8 @@ export const adicionarFila = mutation({
       await ctx.db.patch(existing._id, {
         status: "watchlist",
         assistido_em: undefined,
+        user_id: args.user_id,
+        ...profile,
       });
       return { in_fila: true, already: false };
     }
@@ -258,6 +316,7 @@ export const adicionarFila = mutation({
       filme_id: args.filme_id,
       titulo: args.titulo,
       status: "watchlist",
+      ...profile,
     });
     return { in_fila: true, already: false };
   },
