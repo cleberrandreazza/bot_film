@@ -6,7 +6,7 @@ import time
 import urllib.parse
 
 import convex_db
-from synopsis_utils import buscar_sinopse_pt
+from synopsis_utils import sinopse_para_filme
 
 try:
     from dotenv import load_dotenv
@@ -112,9 +112,15 @@ def get_streaming(title: str, year: str) -> list:
     return empty
 
 
-def get_pt_synopsis(title: str, year: str, title_omdb: str = "") -> str | None:
-    """Busca sinopse em português no Wikipedia PT (com validação)."""
-    return buscar_sinopse_pt(title, year, title_omdb)
+def get_pt_synopsis(
+    title: str,
+    year: str,
+    title_omdb: str = "",
+    sinopse_omdb: str = "",
+    imdb_id: str = "",
+) -> str:
+    """Sinopse PT: Wikipedia → IMDb PT → texto OMDB."""
+    return sinopse_para_filme(title, year, title_omdb, sinopse_omdb, imdb_id)
 
 
 def get_trailer_id(title: str, year: str) -> str | None:
@@ -232,9 +238,13 @@ def get_movie(imdb_id: str):
         omdb_title = (data.get('Title') or '').strip()
         if omdb_title.upper() == 'N/A':
             omdb_title = ''
-        pt_synopsis = get_pt_synopsis(movie['titulo'], movie['ano'], omdb_title)
-        if pt_synopsis:
-            movie['sinopse'] = pt_synopsis
+        movie['sinopse'] = get_pt_synopsis(
+            movie['titulo'],
+            movie['ano'],
+            omdb_title,
+            movie['sinopse'],
+            imdb_id,
+        )
         movie['trailer_id'] = get_trailer_id(movie['titulo'], movie['ano'])
     return movie
 

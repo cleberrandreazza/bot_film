@@ -798,7 +798,7 @@ async def _criar_evento_discord(
     genero_evt = meta["genero"]
     titulo_omdb = _omdb_valor(omdb_data.get("Title", "")) if omdb_data else ""
     sinopse_evt = sinopse_para_filme(
-        titulo, ano_evt, titulo_omdb, meta["sinopse"]
+        titulo, ano_evt, titulo_omdb, meta["sinopse"], filme_id
     )
 
     canal = await _get_evento_voice_channel(interaction.guild)
