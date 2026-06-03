@@ -9,7 +9,8 @@ import urllib.parse
 import convex_db
 from discord_guild import invalidar_cache_usuario, usuario_e_cinefilo
 from evento_service import criar_evento_agendado, opcoes_picker_evento
-from sorteio_utils import sortear_fila
+from cartaz_utils import filme_em_cartaz_br
+from sorteio_utils import amostrar_pool_sorteio
 from synopsis_utils import sinopse_para_filme
 
 try:
@@ -572,7 +573,7 @@ def api_fila_sorteio():
         return jsonify({'error': 'fila_vazia'}), 400
     try:
         bloqueados = convex_db.filme_ids_com_evento_ativo()
-        pool, escolhido = sortear_fila(
+        pool = amostrar_pool_sorteio(
             filmes,
             bloqueados,
             get_filme_id=lambda f: f.get('filme_id', ''),
@@ -582,12 +583,28 @@ def api_fila_sorteio():
             return jsonify({
                 'error': 'sem_elegiveis_evento',
                 'message': (
-                    'Todos os filmes da fila já têm sessão agendada ou ativa no Discord. '
-                    'Cancele ou encerre um evento antes de sortear de novo.'
+                    'Nenhum filme elegível para sortear (todos com sessão '
+                    'agendada/ativa no Discord).'
                 ),
             }), 400
         raise
-    return jsonify({'filme': escolhido, 'pool': pool, 'pool_size': len(pool)})
+    return jsonify({'pool': pool, 'pool_size': len(pool)})
+
+
+@app.route('/api/fila/em-cartaz', methods=['POST'])
+def api_fila_em_cartaz():
+    """Verifica um filme no JustWatch (usado durante a animação do sorteio)."""
+    denied = _json_cinefilo_required()
+    if denied:
+        return denied
+    body = request.json or {}
+    filme_id = (body.get('filme_id') or '').strip()
+    titulo = (body.get('titulo') or '').strip()
+    ano = str(body.get('ano') or '').strip()
+    if not filme_id and not titulo:
+        return jsonify({'error': 'dados_invalidos'}), 400
+    em_cartaz = filme_em_cartaz_br(filme_id, titulo or 'Filme', ano)
+    return jsonify({'em_cartaz': em_cartaz})
 
 
 @app.route('/api/evento/opcoes')

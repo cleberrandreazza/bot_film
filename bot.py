@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 import convex_db
-from sorteio_utils import sortear_fila
+from sorteio_utils import sortear_fila_bot
 from synopsis_utils import sinopse_para_filme
 from event_cover_utils import preparar_capa_evento, genero_para_evento
 from evento_service import criar_evento_agendado
@@ -67,21 +67,6 @@ OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "").strip()
 _EVENTO_DURACAO_PADRAO_MIN = 120
 _EVENTO_DURACAO_MIN_MIN = 30
 _EVENTO_DURACAO_MAX_MIN = 480
-
-_JW_GRAPHQL = "https://apis.justwatch.com/graphql"
-_JW_CARTAZ_QUERY = (
-    '{ popularTitles(country: BR, first: 6,'
-    ' filter: {searchQuery: "%s", objectTypes: [MOVIE]}) {'
-    " edges { node { __typename ... on Movie {"
-    ' content(country: BR, language: "pt") {'
-    " title externalIds { imdbId }"
-    " }"
-    " offers(country: BR, platform: WEB) { monetizationType }"
-    " } } } } }"
-)
-_CARTAZ_CACHE: dict[str, tuple[bool, float]] = {}
-_CARTAZ_CACHE_TTL = 6 * 3600
-
 
 @bot.event
 async def on_ready():
@@ -218,67 +203,12 @@ def _formatar_duracao(minutos: int) -> str:
     return f"{minutos} min"
 
 
-def filme_em_cartaz_br(imdb_id: str, titulo: str, ano: str = "") -> bool:
-    """True se o filme está em cartaz no Brasil (JustWatch: oferta CINEMA)."""
-    key = imdb_id or f"{titulo}:{ano}"
-    now = time.time()
-    cached = _CARTAZ_CACHE.get(key)
-    if cached and now - cached[1] < _CARTAZ_CACHE_TTL:
-        return cached[0]
-
-    busca = f"{titulo} {ano}".strip() if ano and ano != "N/A" else titulo
-    safe = busca.replace('"', '\\"')
-    try:
-        resp = requests.post(
-            _JW_GRAPHQL,
-            json={"query": _JW_CARTAZ_QUERY % safe},
-            headers={
-                "User-Agent": "JustWatch/4.0 (Android)",
-                "Content-Type": "application/json",
-            },
-            timeout=8,
-        )
-        if not resp.ok:
-            return False
-        edges = (resp.json().get("data") or {}).get("popularTitles", {}).get("edges", [])
-        em_cartaz = False
-        for edge in edges:
-            node = edge.get("node", {})
-            if node.get("__typename") != "Movie":
-                continue
-            content = node.get("content", {})
-            node_imdb = (content.get("externalIds") or {}).get("imdbId", "")
-            if imdb_id and node_imdb and node_imdb != imdb_id:
-                continue
-            for offer in node.get("offers") or []:
-                if (offer.get("monetizationType") or "").upper() == "CINEMA":
-                    em_cartaz = True
-                    break
-            if em_cartaz:
-                break
-        _CARTAZ_CACHE[key] = (em_cartaz, now)
-        return em_cartaz
-    except Exception as e:
-        print(f"[Sorteio] Erro ao consultar cartaz JustWatch: {e}")
-        return False
-
-
-def _filtrar_fila_fora_cartaz(watchlist: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], list[str]]:
-    """Separa filmes elegíveis ao sorteio e títulos em cartaz."""
-    elegiveis: list[tuple[str, str]] = []
-    em_cartaz: list[str] = []
-    for filme_id, titulo in watchlist:
-        detalhes = buscar_imdb_por_id(filme_id)
-        ano = ""
-        if detalhes:
-            ano = str(detalhes.get("ano") or "")
-            if ano == "N/A":
-                ano = ""
-        if filme_em_cartaz_br(filme_id, titulo, ano):
-            em_cartaz.append(titulo)
-        else:
-            elegiveis.append((filme_id, titulo))
-    return elegiveis, em_cartaz
+def _ano_filme_imdb(filme_id: str) -> str:
+    detalhes = buscar_imdb_por_id(filme_id)
+    if not detalhes:
+        return ""
+    ano = str(detalhes.get("ano") or "")
+    return "" if ano == "N/A" else ano
 
 
 # ================================================================
@@ -427,35 +357,29 @@ async def _sorteio(send):
         await send("❌ A fila está vazia! Use `$adicionar` ou `/adicionar` para colocar filmes na lista.")
         return
 
-    await send("🎲 Sorteando… (ignorando filmes em cartaz e com evento no Discord)")
-    elegiveis, em_cartaz = await asyncio.to_thread(_filtrar_fila_fora_cartaz, watchlist)
-
-    if not elegiveis:
-        if em_cartaz:
-            lista = "\n".join(f"• {t}" for t in em_cartaz[:8])
-            extra = f"\n… e mais {len(em_cartaz) - 8}" if len(em_cartaz) > 8 else ""
-            await send(
-                "❌ Todos os filmes da fila estão **em cartaz** no cinema agora.\n"
-                f"{lista}{extra}\n\n"
-                "Adicione filmes que já saíram dos cinemas ou tente de novo mais tarde."
-            )
-        else:
-            await send("❌ Não foi possível sortear agora. Tente novamente em instantes.")
-        return
-
+    await send("🎲 Sorteando… (amostra de 10, ignorando cartaz e evento no Discord)")
     bloqueados = await asyncio.to_thread(convex_db.filme_ids_com_evento_ativo)
     try:
         _, (filme_id, titulo) = await asyncio.to_thread(
-            sortear_fila,
-            elegiveis,
+            sortear_fila_bot,
+            watchlist,
             bloqueados,
             get_filme_id=lambda par: par[0],
+            get_titulo=lambda par: par[1],
+            get_ano=lambda par: _ano_filme_imdb(par[0]),
         )
     except ValueError as e:
-        if str(e) == "sem_elegiveis_evento":
+        codigo = str(e)
+        if codigo == "sem_elegiveis_evento":
             await send(
-                "❌ Todos os filmes elegíveis já têm **sessão agendada ou ativa** no Discord.\n"
+                "❌ Nenhum filme elegível para sortear (todos com **sessão no Discord**).\n"
                 "Cancele ou encerre um evento (`/excluir_evento`) antes de sortear de novo."
+            )
+            return
+        if codigo == "todos_em_cartaz":
+            await send(
+                "❌ Os 10 candidatos sorteados estão **em cartaz** no cinema agora.\n"
+                "Tente de novo mais tarde ou adicione outros títulos à fila."
             )
             return
         raise
@@ -470,16 +394,9 @@ async def _sorteio(send):
         embed.add_field(name="🔗 Link IMDb", value=f"https://www.imdb.com/title/{detalhes['id']}/")
         if detalhes['capa']:
             embed.set_image(url=detalhes['capa'])
-        if em_cartaz:
-            embed.set_footer(
-                text=f"{len(em_cartaz)} filme(s) em cartaz foram ignorados no sorteio"
-            )
         await send(embed=embed)
     else:
-        msg = f"🎲 O sorteado foi: **{titulo}** — hora de assistir!"
-        if em_cartaz:
-            msg += f"\n_({len(em_cartaz)} em cartaz ignorados)_"
-        await send(msg)
+        await send(f"🎲 O sorteado foi: **{titulo}** — hora de assistir!")
 
 
 # ================================================================

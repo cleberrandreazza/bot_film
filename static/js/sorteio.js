@@ -32,6 +32,7 @@ if (sorteioModal && podeSorteio) {
   const eventoTz = document.getElementById('sorteio-evento-tz');
 
   let poolSorteio = [];
+  const cartazRemovidos = new Set();
   let vencedorAtual = null;
   let animando = false;
   let sorteioCancelado = false;
@@ -135,34 +136,14 @@ if (sorteioModal && podeSorteio) {
     });
   }
 
-  const SORTEIO_ANIM_MAX_MS = 10000;
-  const SORTEIO_ANIM_MIN_PASSOS = 20;
-  const SORTEIO_ANIM_MAX_PASSOS = 48;
+  const SORTEIO_SPIN_MS = 140;
+  const SORTEIO_EXTRA_APOS_JW_MS = 5000;
 
-  function calcularTotalPassos(poolLen, alvo) {
-    const passosBase = Math.max(24, poolLen * 4);
-    const passosExtras = Math.max(0, alvo - (passosBase % poolLen));
-    const ideal = passosBase + passosExtras + alvo;
-    return Math.min(
-      Math.max(SORTEIO_ANIM_MIN_PASSOS, ideal),
-      SORTEIO_ANIM_MAX_PASSOS,
-    );
-  }
-
-  /** Delays com desaceleração; soma sempre <= SORTEIO_ANIM_MAX_MS. */
-  function delaysAnimacao(numDelays) {
-    if (numDelays <= 0) return [];
-    const raw = [];
-    for (let i = 0; i < numDelays; i++) {
-      const p = i / numDelays;
-      raw.push(55 + p * p * 320);
-    }
-    let sum = raw.reduce((a, b) => a + b, 0);
-    if (sum <= SORTEIO_ANIM_MAX_MS) {
-      return raw.map((d) => Math.round(d));
-    }
-    const scale = SORTEIO_ANIM_MAX_MS / sum;
-    return raw.map((d) => Math.max(12, Math.round(d * scale)));
+  function mostrarPassoAnimacao(pool, passo) {
+    const ativos = poolParaAnimacao(pool);
+    const lista = ativos.length ? ativos : pool;
+    if (!lista.length) return;
+    mostrarFilme(lista[passo % lista.length], true);
   }
 
   let listaHorariosPronta = false;
@@ -420,15 +401,50 @@ if (sorteioModal && podeSorteio) {
       if (data.error === 'sem_elegiveis_evento') {
         throw new Error(
           data.message
-            || 'Todos os filmes da fila já têm sessão no Discord. Cancele ou encerre um evento antes de sortear.',
+            || 'Nenhum filme elegível (todos com sessão agendada/ativa no Discord).',
         );
       }
       throw new Error(data.message || 'Erro ao sortear.');
     }
-    poolSorteio = Array.isArray(data.pool) && data.pool.length
-      ? data.pool
-      : [data.filme];
-    return data.filme;
+    const pool = Array.isArray(data.pool) ? data.pool : [];
+    if (!pool.length) throw new Error('A fila está vazia.');
+    poolSorteio = pool;
+    return pool;
+  }
+
+  function poolParaAnimacao(pool) {
+    const ativos = pool.filter((f) => !cartazRemovidos.has(f.filme_id));
+    return ativos.length ? ativos : pool;
+  }
+
+  function iniciarVerificacaoCartaz(pool) {
+    cartazRemovidos.clear();
+    return pool.map((filme) =>
+      fetch('/api/fila/em-cartaz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filme_id: filme.filme_id,
+          titulo: filme.titulo || '',
+          ano: filme.ano != null ? String(filme.ano) : '',
+        }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data.em_cartaz) cartazRemovidos.add(filme.filme_id);
+        })
+        .catch(() => {}),
+    );
+  }
+
+  function escolherVencedor(pool) {
+    const elegiveis = pool.filter((f) => !cartazRemovidos.has(f.filme_id));
+    if (!elegiveis.length) {
+      throw new Error(
+        'Os candidatos deste sorteio estão em cartaz no cinema. Tente de novo em instantes.',
+      );
+    }
+    return elegiveis[Math.floor(Math.random() * elegiveis.length)];
   }
 
   async function configurarPickersEvento() {
@@ -484,37 +500,40 @@ if (sorteioModal && podeSorteio) {
     });
 
     try {
-      const vencedor = await sortearNoServidor();
+      const pool = await sortearNoServidor();
       if (sorteioCancelado) return;
 
-      const pool = poolSorteio;
-      await Promise.all(pool.map((f) => preloadPoster(f.poster)));
-      if (sorteioCancelado) return;
+      const verificacoesCartaz = iniciarVerificacaoCartaz(pool);
+      const preloadProm = Promise.all(pool.map((f) => preloadPoster(f.poster)));
+      const cartazPronto = Promise.all(verificacoesCartaz);
 
-      const winIdx = pool.findIndex((f) => f.filme_id === vencedor.filme_id);
-      const alvo = winIdx >= 0 ? winIdx : pool.length - 1;
-
-      const totalPassos = calcularTotalPassos(pool.length, alvo);
-      const delays = delaysAnimacao(totalPassos);
-
-      for (let i = 0; i <= totalPassos; i++) {
-        if (sorteioCancelado) break;
-
-        const idx = i % pool.length;
-        const filme = i === totalPassos ? vencedor : pool[idx];
-        const flicker = i < totalPassos;
-        mostrarFilme(filme, flicker);
-
-        if (i === totalPassos) break;
-
-        await sleep(delays[i] ?? delays[delays.length - 1] ?? 80);
+      let passo = 0;
+      while (!sorteioCancelado) {
+        const terminou = await Promise.race([
+          cartazPronto.then(() => true),
+          sleep(SORTEIO_SPIN_MS).then(() => false),
+        ]);
+        mostrarPassoAnimacao(pool, passo);
+        passo += 1;
+        if (terminou) break;
       }
 
       if (sorteioCancelado || !sorteioModal.classList.contains('open')) return;
 
-      await sleep(120);
+      const fimExtra = Date.now() + SORTEIO_EXTRA_APOS_JW_MS;
+      while (Date.now() < fimExtra && !sorteioCancelado) {
+        mostrarPassoAnimacao(pool, passo);
+        passo += 1;
+        await sleep(SORTEIO_SPIN_MS);
+      }
+
       if (sorteioCancelado || !sorteioModal.classList.contains('open')) return;
 
+      await Promise.all([cartazPronto, preloadProm]);
+      if (sorteioCancelado || !sorteioModal.classList.contains('open')) return;
+
+      const vencedor = escolherVencedor(pool);
+      mostrarFilme(vencedor, false);
       mostrarResultado(vencedor);
     } catch (err) {
       if (err.message === 'login') return;
