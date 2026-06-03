@@ -679,18 +679,24 @@ async def _get_evento_announce_channel(
     interaction: discord.Interaction,
 ) -> discord.TextChannel | discord.Thread | None:
     """Canal público do aviso: EVENTO_ANNOUNCE_CHANNEL_ID ou canal do /evento."""
+    candidatos: list[int] = []
     if EVENTO_ANNOUNCE_CHANNEL_ID:
-        ch = guild.get_channel(int(EVENTO_ANNOUNCE_CHANNEL_ID))
+        try:
+            candidatos.append(int(EVENTO_ANNOUNCE_CHANNEL_ID))
+        except ValueError:
+            print(f"[Evento] EVENTO_ANNOUNCE_CHANNEL_ID inválido: {EVENTO_ANNOUNCE_CHANNEL_ID}")
+    if interaction.channel_id and interaction.channel_id not in candidatos:
+        candidatos.append(interaction.channel_id)
+
+    for cid in candidatos:
+        ch = guild.get_channel(cid)
         if ch is None:
             try:
-                ch = await guild.fetch_channel(int(EVENTO_ANNOUNCE_CHANNEL_ID))
-            except (discord.NotFound, discord.HTTPException, ValueError):
+                ch = await guild.fetch_channel(cid)
+            except (discord.NotFound, discord.HTTPException):
                 ch = None
         if isinstance(ch, (discord.TextChannel, discord.Thread)):
             return ch
-    ch = interaction.channel
-    if isinstance(ch, (discord.TextChannel, discord.Thread)):
-        return ch
     return None
 
 
@@ -699,26 +705,57 @@ async def _enviar_aviso_evento_publico(
     titulo: str,
     discord_event: discord.ScheduledEvent,
     role: discord.Role | None,
-) -> None:
-    """Aviso visível no canal com ping na role (não ephemeral)."""
-    if role:
-        texto = f"🎬 **{titulo}** {role.mention}\n{discord_event.url}"
-        mentions = discord.AllowedMentions(roles=[role])
-    else:
-        texto = f"🎬 **{titulo}**\n{discord_event.url}"
-        mentions = discord.AllowedMentions.none()
-
+) -> bool:
+    """
+    Aviso em canal de texto via channel.send (followup de interação não pinga role).
+    Retorna True se publicou no canal.
+    """
     canal = await _get_evento_announce_channel(interaction.guild, interaction)
     me = interaction.guild.me
-    if canal and me and canal.permissions_for(me).send_messages:
-        await canal.send(texto, allowed_mentions=mentions)
-        return
+    if not canal:
+        print("[Evento] Nenhum canal de texto para aviso público.")
+        return False
+    if not me:
+        print("[Evento] Bot sem membro no servidor.")
+        return False
 
-    await interaction.followup.send(
-        texto,
-        allowed_mentions=mentions,
-        ephemeral=False,
-    )
+    perms = canal.permissions_for(me)
+    if not perms.send_messages:
+        print(f"[Evento] Sem permissão de enviar em #{canal.name}.")
+        return False
+    if role and not perms.mention_everyone:
+        print(
+            f"[Evento] Bot sem 'Mencionar @everyone/cargos' em #{canal.name} — "
+            "ping da role pode falhar."
+        )
+
+    detalhes = f"🎬 **{titulo}**\n{discord_event.url}"
+    try:
+        if role:
+            if not role.mentionable:
+                print(
+                    f"[Evento] Role '{role.name}' não está como mencionável; "
+                    "usando permissão MENTION_EVERYONE do bot."
+                )
+            # Mensagem só com o ping — padrão mais confiável que interaction followup
+            await canal.send(
+                content=f"<@&{role.id}>",
+                allowed_mentions=discord.AllowedMentions(roles=[role.id]),
+            )
+            await canal.send(
+                content=detalhes,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        else:
+            await canal.send(
+                content=detalhes,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        print(f"[Evento] Aviso publicado em #{canal.name} (id {canal.id}).")
+        return True
+    except discord.HTTPException as e:
+        print(f"[Evento] Erro ao publicar aviso em #{canal.name}: {e}")
+        return False
 
 
 def _descricao_evento(
@@ -870,7 +907,16 @@ async def _criar_evento_discord(
     role = await _get_evento_notify_role(interaction.guild)
     if not role:
         print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
-    await _enviar_aviso_evento_publico(interaction, titulo, discord_event, role)
+    publicado = await _enviar_aviso_evento_publico(
+        interaction, titulo, discord_event, role
+    )
+    if not publicado:
+        await interaction.followup.send(
+            "⚠️ Evento criado, mas o aviso **não foi publicado** em canal de texto. "
+            "Use `/evento` em um canal de texto ou defina `EVENTO_ANNOUNCE_CHANNEL_ID` "
+            "no Railway (ID do canal de avisos).",
+            ephemeral=True,
+        )
     return True
 
 
@@ -990,8 +1036,16 @@ class EventoConfirmarButton(discord.ui.Button):
         if ok:
             for item in view.children:
                 item.disabled = True
+            canal_aviso = await _get_evento_announce_channel(
+                interaction.guild, interaction
+            )
+            destino = (
+                f" no canal **#{canal_aviso.name}**"
+                if canal_aviso
+                else " (configure `EVENTO_ANNOUNCE_CHANNEL_ID` se não viu o aviso)"
+            )
             await interaction.edit_original_response(
-                content=f"✅ Sessão de **{view.titulo}** criada! Veja o aviso no canal.",
+                content=f"✅ Sessão de **{view.titulo}** criada! Aviso com @role enviado{destino}.",
                 view=view,
             )
 
