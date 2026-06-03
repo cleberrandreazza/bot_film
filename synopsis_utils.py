@@ -1,53 +1,15 @@
-"""Sinopse em português: Wikipedia PT, IMDb PT (imdb.com/pt), fallback OMDB."""
+"""Sinopse em português: TMDB PT, Wikipedia PT, fallback OMDB."""
 
-import json
 import re
 import time
 
 import requests
 
+from tmdb_utils import buscar_sinopse_tmdb_pt, normalizar_imdb_id
+
 _CACHE: dict[str, tuple[str | None, float]] = {}
-_IMDB_CACHE: dict[str, tuple[str | None, float]] = {}
 _CACHE_TTL = 24 * 3600
-
-IMDB_PT_BASE = "https://www.imdb.com/pt/"
-IMDB_PT_TITLE_URL = "https://www.imdb.com/pt/title/{imdb_id}/"
-_IMDB_GRAPHQL = "https://api.graphql.imdb.com/"
-_IMDB_PLOT_QUERY = (
-    "query Plot($id: ID!) { title(id: $id) { plot { plotText { plainText } } } }"
-)
-
 _WIKI_HEADERS = {"User-Agent": "CinemaColetivo/1.0"}
-_IMDB_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "pt-BR,pt;q=0.9",
-    "Content-Type": "application/json",
-    "X-IMDb-User-Country": "BR",
-    "X-IMDb-User-Language": "pt-BR",
-    "Referer": IMDB_PT_BASE,
-}
-
-
-def _normalizar_imdb_id(imdb_id: str) -> str:
-    imdb_id = (imdb_id or "").strip().lower()
-    if not imdb_id:
-        return ""
-    if not imdb_id.startswith("tt"):
-        imdb_id = f"tt{imdb_id}"
-    if re.fullmatch(r"tt\d{7,8}", imdb_id):
-        return imdb_id
-    return ""
-
-
-def _truncar_sinopse(texto: str, max_len: int = 600) -> str:
-    texto = (texto or "").strip()
-    if len(texto) <= max_len:
-        return texto
-    cortado = texto[:max_len].rsplit(" ", 1)[0]
-    return cortado + "…"
 
 
 def _palavras_significativas(texto: str) -> set[str]:
@@ -73,6 +35,14 @@ def _wiki_sinopse_valida(
         if palavras_filme & palavras_pagina:
             return True
     return bool(ano and len(ano) == 4 and ano in blob)
+
+
+def _truncar_sinopse(texto: str, max_len: int = 600) -> str:
+    texto = (texto or "").strip()
+    if len(texto) <= max_len:
+        return texto
+    cortado = texto[:max_len].rsplit(" ", 1)[0]
+    return cortado + "…"
 
 
 def _formatar_extract(extract: str) -> str:
@@ -126,99 +96,6 @@ def _wiki_extract(titulo_pagina: str) -> str:
     except Exception as e:
         print(f"[Sinopse] Erro ao ler Wikipedia: {e}")
     return ""
-
-
-def _imdb_plot_graphql(imdb_id: str) -> str:
-    try:
-        r = requests.post(
-            _IMDB_GRAPHQL,
-            json={"query": _IMDB_PLOT_QUERY, "variables": {"id": imdb_id}},
-            headers=_IMDB_HEADERS,
-            timeout=10,
-        )
-        if not r.ok:
-            return ""
-        data = r.json()
-        plot = (
-            (data.get("data") or {})
-            .get("title", {})
-            .get("plot", {})
-            .get("plotText", {})
-            .get("plainText", "")
-        )
-        return (plot or "").strip()
-    except Exception as e:
-        print(f"[Sinopse] Erro IMDb PT ({imdb_id}): {e}")
-    return ""
-
-
-def _imdb_plot_html(imdb_id: str) -> str:
-    """Fallback: página PT do título (JSON-LD / __NEXT_DATA__)."""
-    url = IMDB_PT_TITLE_URL.format(imdb_id=imdb_id)
-    try:
-        r = requests.get(
-            url,
-            headers={k: v for k, v in _IMDB_HEADERS.items() if k != "Content-Type"},
-            timeout=12,
-        )
-        if r.status_code != 200 or len(r.text) < 500:
-            return ""
-        for block in re.findall(
-            r'<script type="application/ld\+json">(.*?)</script>',
-            r.text,
-            flags=re.DOTALL,
-        ):
-            try:
-                payload = json.loads(block)
-            except json.JSONDecodeError:
-                continue
-            items = payload if isinstance(payload, list) else [payload]
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                desc = (item.get("description") or "").strip()
-                if len(desc) >= 40:
-                    return desc
-        m = re.search(
-            r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
-            r.text,
-            re.DOTALL,
-        )
-        if m:
-            blob = m.group(1)
-            for match in re.finditer(r'"plainText"\s*:\s*"((?:\\.|[^"\\])*)"', blob):
-                text = json.loads(f'"{match.group(1)}"')
-                if len(text) >= 40:
-                    return text.strip()
-    except Exception as e:
-        print(f"[Sinopse] Erro scrape IMDb PT ({imdb_id}): {e}")
-    return ""
-
-
-def buscar_sinopse_imdb_pt(imdb_id: str) -> str | None:
-    """
-    Sinopse em português do IMDb (locale PT-BR, equivalente a imdb.com/pt).
-    Usa GraphQL com cabeçalhos de localização; fallback leve na URL PT do título.
-    """
-    imdb_id = _normalizar_imdb_id(imdb_id)
-    if not imdb_id:
-        return None
-
-    now = time.time()
-    cached = _IMDB_CACHE.get(imdb_id)
-    if cached and now - cached[1] < _CACHE_TTL:
-        return cached[0]
-
-    plot = _imdb_plot_graphql(imdb_id)
-    if len(plot) < 30:
-        plot = _imdb_plot_html(imdb_id)
-    if len(plot) < 30:
-        _IMDB_CACHE[imdb_id] = (None, now)
-        return None
-
-    synopsis = _truncar_sinopse(plot)
-    _IMDB_CACHE[imdb_id] = (synopsis, now)
-    return synopsis
 
 
 def buscar_sinopse_pt(
@@ -278,13 +155,13 @@ def sinopse_para_filme(
     imdb_id: str = "",
 ) -> str:
     """
-    Com imdb_id: IMDb PT (imdb.com/pt) → Wikipedia → OMDB.
+    Com imdb_id: TMDB PT → Wikipedia → OMDB.
     Sem imdb_id: Wikipedia → OMDB.
     """
-    if _normalizar_imdb_id(imdb_id):
-        imdb_pt = buscar_sinopse_imdb_pt(imdb_id)
-        if imdb_pt:
-            return imdb_pt
+    if normalizar_imdb_id(imdb_id):
+        tmdb_pt = buscar_sinopse_tmdb_pt(imdb_id)
+        if tmdb_pt:
+            return tmdb_pt
 
     pt = buscar_sinopse_pt(titulo, ano, titulo_omdb)
     if pt:

@@ -1,28 +1,21 @@
 """Capa de evento Discord: backdrop TMDB + recorte para faixa horizontal."""
 
 import io
-import os
 import time
 
 import requests
-
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
 
 try:
     from PIL import Image
 except ImportError:
     Image = None  # type: ignore
 
-
-def _tmdb_api_key() -> str:
-    return os.environ.get("TMDB_API_KEY", "").strip()
-TMDB_BASE = "https://api.themoviedb.org/3"
-TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w1280"
+from tmdb_utils import (
+    TMDB_IMAGE_BASE,
+    resolver_media_por_imdb,
+    tmdb_api_key,
+    tmdb_get,
+)
 
 _EVENT_COVER_MAX_BYTES = 8 * 1024 * 1024
 _COVER_ASPECT = 550 / 120  # faixa visível no card do Discord
@@ -30,7 +23,7 @@ _COVER_WIDTH = 1100
 _COVER_HEIGHT = round(_COVER_WIDTH / _COVER_ASPECT)
 
 _HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-_TMDB_CACHE: dict[str, tuple[str | None, float]] = {}
+_BACKDROP_CACHE: dict[str, tuple[str, float]] = {}
 _GENEROS_CACHE: dict[str, tuple[str, float]] = {}
 _BYTES_CACHE: dict[str, tuple[bytes | None, float]] = {}
 _CACHE_TTL = 24 * 3600
@@ -71,84 +64,39 @@ def _cache_set(store: dict, key: str, value: str | bytes | None) -> None:
     store[key] = (value, time.time())
 
 
-def _tmdb_get(path: str, params: dict | None = None) -> dict | list | None:
-    api_key = _tmdb_api_key()
-    if not api_key:
-        return None
-    try:
-        r = requests.get(
-            f"{TMDB_BASE}{path}",
-            params={**(params or {}), "api_key": api_key},
-            headers=_HTTP_HEADERS,
-            timeout=10,
-        )
-        if r.ok:
-            return r.json()
-    except Exception as e:
-        print(f"[Capa evento] TMDB {path}: {e}")
-    return None
-
-
 def _melhor_backdrop_path(imdb_id: str) -> str | None:
-    cached = _cache_get(_TMDB_CACHE, imdb_id)
+    cached = _cache_get(_BACKDROP_CACHE, imdb_id)
     if cached is not None:
         return cached or None
 
     path: str | None = None
-    data = _tmdb_get(f"/find/{imdb_id}", {"external_source": "imdb_id"})
-    if not data:
-        _cache_set(_TMDB_CACHE, imdb_id, None)
-        return None
+    media = resolver_media_por_imdb(imdb_id)
+    if media:
+        mtype, tmdb_id = media
+        data = tmdb_get(f"/{mtype}/{tmdb_id}")
+        if data:
+            path = (data.get("backdrop_path") or "").strip() or None
+        if not path:
+            images = tmdb_get(f"/{mtype}/{tmdb_id}/images")
+            if images:
+                backdrops = images.get("backdrops") or []
+                if backdrops:
+                    best = max(
+                        backdrops,
+                        key=lambda b: (
+                            float(b.get("vote_average") or 0),
+                            int(b.get("width") or 0),
+                        ),
+                    )
+                    path = (best.get("file_path") or "").strip() or None
 
-    media = None
-    media_type = ""
-    for kind, mtype in (("movie_results", "movie"), ("tv_results", "tv")):
-        results = data.get(kind) or []
-        if results:
-            media = results[0]
-            media_type = mtype
-            break
-
-    if not media:
-        _cache_set(_TMDB_CACHE, imdb_id, None)
-        return None
-
-    path = (media.get("backdrop_path") or "").strip() or None
-    tmdb_id = media.get("id")
-    if not path and tmdb_id and media_type:
-        images = _tmdb_get(f"/{media_type}/{tmdb_id}/images")
-        if images:
-            backdrops = images.get("backdrops") or []
-            if backdrops:
-                best = max(
-                    backdrops,
-                    key=lambda b: (
-                        float(b.get("vote_average") or 0),
-                        int(b.get("width") or 0),
-                    ),
-                )
-                path = (best.get("file_path") or "").strip() or None
-
-    _cache_set(_TMDB_CACHE, imdb_id, path or "")
+    _cache_set(_BACKDROP_CACHE, imdb_id, path or "")
     return path
 
 
 def _traduzir_generos_omdb(generos_en: str) -> str:
     partes = [p.strip() for p in generos_en.split(",") if p.strip()]
     return ", ".join(_OMDB_GENERO_PT.get(p, p) for p in partes)
-
-
-def _resolver_media_imdb(imdb_id: str) -> tuple[str, int] | None:
-    data = _tmdb_get(f"/find/{imdb_id}", {"external_source": "imdb_id"})
-    if not data:
-        return None
-    for kind, mtype in (("movie_results", "movie"), ("tv_results", "tv")):
-        results = data.get(kind) or []
-        if results:
-            mid = results[0].get("id")
-            if mid:
-                return mtype, int(mid)
-    return None
 
 
 def genero_para_evento(imdb_id: str, genero_omdb: str = "") -> str:
@@ -161,11 +109,11 @@ def genero_para_evento(imdb_id: str, genero_omdb: str = "") -> str:
         return cached or _traduzir_generos_omdb(genero_omdb)
 
     resultado = ""
-    if imdb_id and _tmdb_api_key():
-        media = _resolver_media_imdb(imdb_id)
+    if imdb_id and tmdb_api_key():
+        media = resolver_media_por_imdb(imdb_id)
         if media:
             mtype, tmdb_id = media
-            data = _tmdb_get(f"/{mtype}/{tmdb_id}", {"language": "pt-BR"})
+            data = tmdb_get(f"/{mtype}/{tmdb_id}", {"language": "pt-BR"})
             if data:
                 nomes = [g["name"] for g in (data.get("genres") or []) if g.get("name")]
                 resultado = ", ".join(nomes)
@@ -236,7 +184,7 @@ def preparar_capa_evento(imdb_id: str, poster_url: str = "") -> bytes | None:
         return cached if cached else None
 
     urls: list[str] = []
-    backdrop = _melhor_backdrop_path(imdb_id) if imdb_id and _tmdb_api_key() else None
+    backdrop = _melhor_backdrop_path(imdb_id) if imdb_id and tmdb_api_key() else None
     if backdrop:
         urls.append(f"{TMDB_IMAGE_BASE}{backdrop}")
     if poster_url:
