@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 import convex_db
+from synopsis_utils import sinopse_para_filme
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
@@ -76,8 +77,6 @@ _JW_CARTAZ_QUERY = (
 )
 _CARTAZ_CACHE: dict[str, tuple[bool, float]] = {}
 _CARTAZ_CACHE_TTL = 6 * 3600
-_SINOPESE_CACHE: dict[str, tuple[str | None, float]] = {}
-_SINOPESE_CACHE_TTL = 24 * 3600
 
 
 @bot.event
@@ -200,54 +199,6 @@ def _omdb_valor(val) -> str:
     if not val or str(val).upper() == "N/A":
         return ""
     return str(val).strip()
-
-
-def buscar_sinopse_pt(titulo: str, ano: str = "") -> str | None:
-    """Sinopse em português via Wikipedia PT (mesma lógica do site)."""
-    key = f"{titulo}:{ano}"
-    now = time.time()
-    cached = _SINOPESE_CACHE.get(key)
-    if cached and now - cached[1] < _SINOPESE_CACHE_TTL:
-        return cached[0]
-    try:
-        busca = f"{titulo} {ano} filme".strip() if ano and ano != "N/A" else f"{titulo} filme"
-        r = requests.get(
-            "https://pt.wikipedia.org/w/api.php",
-            params={
-                "action": "query", "list": "search",
-                "srsearch": busca, "format": "json", "srlimit": 3, "utf8": 1,
-            },
-            headers={"User-Agent": "CinemaColetivo/1.0"},
-            timeout=5,
-        )
-        results = (r.json().get("query") or {}).get("search", [])
-        if not results:
-            _SINOPESE_CACHE[key] = (None, now)
-            return None
-        r2 = requests.get(
-            "https://pt.wikipedia.org/w/api.php",
-            params={
-                "action": "query", "prop": "extracts", "exintro": 1,
-                "explaintext": 1, "titles": results[0]["title"],
-                "format": "json", "utf8": 1,
-            },
-            headers={"User-Agent": "CinemaColetivo/1.0"},
-            timeout=5,
-        )
-        pages = (r2.json().get("query") or {}).get("pages", {})
-        for page in pages.values():
-            extract = (page.get("extract") or "").strip()
-            if len(extract) > 80:
-                sentences = [s.strip() for s in extract.split(".") if s.strip()]
-                synopsis = ". ".join(sentences[:4]) + "."
-                if len(synopsis) > 600:
-                    synopsis = synopsis[:600].rsplit(" ", 1)[0] + "…"
-                _SINOPESE_CACHE[key] = (synopsis, now)
-                return synopsis
-    except Exception as e:
-        print(f"[Evento] Erro ao buscar sinopse PT: {e}")
-    _SINOPESE_CACHE[key] = (None, now)
-    return None
 
 
 def _duracao_evento(imdb_id: str, omdb_data: dict | None = None) -> timedelta:
@@ -845,10 +796,9 @@ async def _criar_evento_discord(
         meta = {"ano": "", "genero": "", "sinopse": ""}
     ano_evt = meta["ano"] or ano_imdb
     genero_evt = meta["genero"]
-    sinopse_evt = (
-        buscar_sinopse_pt(titulo, ano_evt)
-        or (buscar_sinopse_pt(_omdb_valor(omdb_data.get("Title", "")) if omdb_data else "", ano_evt))
-        or meta["sinopse"]
+    titulo_omdb = _omdb_valor(omdb_data.get("Title", "")) if omdb_data else ""
+    sinopse_evt = sinopse_para_filme(
+        titulo, ano_evt, titulo_omdb, meta["sinopse"]
     )
 
     canal = await _get_evento_voice_channel(interaction.guild)

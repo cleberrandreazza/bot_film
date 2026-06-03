@@ -6,6 +6,7 @@ import time
 import urllib.parse
 
 import convex_db
+from synopsis_utils import buscar_sinopse_pt
 
 try:
     from dotenv import load_dotenv
@@ -111,40 +112,9 @@ def get_streaming(title: str, year: str) -> list:
     return empty
 
 
-def get_pt_synopsis(title: str, year: str) -> str | None:
-    """Busca sinopse em português no Wikipedia PT."""
-    key = f'wiki:{title}:{year}'
-    now = time.time()
-    if key in _cache and now - _cache[key][1] < _TTL * 24:
-        return _cache[key][0]
-    try:
-        r = requests.get('https://pt.wikipedia.org/w/api.php', params={
-            'action': 'query', 'list': 'search',
-            'srsearch': f'{title} {year} filme', 'format': 'json',
-            'srlimit': 3, 'utf8': 1,
-        }, headers={'User-Agent': 'CinemaColetivo/1.0'}, timeout=5)
-        results = (r.json().get('query') or {}).get('search', [])
-        if not results:
-            return None
-        r2 = requests.get('https://pt.wikipedia.org/w/api.php', params={
-            'action': 'query', 'prop': 'extracts', 'exintro': 1,
-            'explaintext': 1, 'titles': results[0]['title'],
-            'format': 'json', 'utf8': 1,
-        }, headers={'User-Agent': 'CinemaColetivo/1.0'}, timeout=5)
-        pages = (r2.json().get('query') or {}).get('pages', {})
-        for page in pages.values():
-            extract = (page.get('extract') or '').strip()
-            if len(extract) > 80:
-                sentences = [s.strip() for s in extract.split('.') if s.strip()]
-                synopsis = '. '.join(sentences[:4]) + '.'
-                if len(synopsis) > 600:
-                    synopsis = synopsis[:600].rsplit(' ', 1)[0] + '…'
-                _cache[key] = (synopsis, now)
-                return synopsis
-    except Exception as e:
-        print(f'Wikipedia error: {e}')
-    _cache[key] = (None, now)
-    return None
+def get_pt_synopsis(title: str, year: str, title_omdb: str = "") -> str | None:
+    """Busca sinopse em português no Wikipedia PT (com validação)."""
+    return buscar_sinopse_pt(title, year, title_omdb)
 
 
 def get_trailer_id(title: str, year: str) -> str | None:
@@ -259,7 +229,10 @@ def get_movie(imdb_id: str):
     movie = _parse_movie(imdb_id, data)
     if movie:
         movie['streaming']  = get_streaming(movie['titulo'], movie['ano'])
-        pt_synopsis         = get_pt_synopsis(movie['titulo'], movie['ano'])
+        omdb_title = (data.get('Title') or '').strip()
+        if omdb_title.upper() == 'N/A':
+            omdb_title = ''
+        pt_synopsis = get_pt_synopsis(movie['titulo'], movie['ano'], omdb_title)
         if pt_synopsis:
             movie['sinopse'] = pt_synopsis
         movie['trailer_id'] = get_trailer_id(movie['titulo'], movie['ano'])
