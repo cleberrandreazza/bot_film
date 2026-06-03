@@ -761,7 +761,7 @@ def _descricao_evento(
     sinopse: str,
 ) -> str:
     partes = []
-q    meta = []
+    meta = []
     if ano:
         meta.append(f"**Ano:** {ano}")
     if genero:
