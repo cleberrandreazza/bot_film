@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Cine do Botecão">
+  <rect width="32" height="32" rx="7" fill="#14181c"/>
+  <path d="M11 7 L9 3 M21 7 L23 3" stroke="#00e054" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="5" y="9" width="22" height="15" rx="2.5" fill="#2c3440" stroke="#3d4c5e" stroke-width="1"/>
+  <rect x="7.5" y="11.5" width="17" height="10" rx="1.5" fill="#14181c"/>
+  <polygon points="14,14.5 14,18.5 18.5,16.5" fill="#00e054"/>
+  <rect x="12" y="25" width="8" height="2" rx="1" fill="#3d4c5e"/>
+  <ellipse cx="16" cy="27.5" rx="5" ry="1" fill="#1c2228"/>
+</svg>

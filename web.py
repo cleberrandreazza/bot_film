@@ -590,6 +590,11 @@ def api_fila_remover():
 
 # ─────────────────────────────────────────────── routes ──
 
+@app.route('/favicon.ico')
+def favicon():
+    return redirect(url_for('static', filename='favicon.svg'))
+
+
 @app.route('/')
 def index():
     watchlist_rows, assistidos_rows = _get_db_rows()
