@@ -777,7 +777,7 @@ def _descricao_evento(
     sinopse: str,
 ) -> str:
     partes = []
-    meta = []
+q    meta = []
     if ano:
         meta.append(f"**Ano:** {ano}")
     if genero:
@@ -1045,23 +1045,10 @@ class EventoConfirmarButton(discord.ui.Button):
             view.hora_val,
         )
         if ok:
-            for item in view.children:
-                item.disabled = True
-            canal_aviso = await _get_evento_announce_channel(
-                interaction.guild, interaction
-            )
-            destino = (
-                f" no canal **#{canal_aviso.name}**"
-                if canal_aviso
-                else " (configure `EVENTO_ANNOUNCE_CHANNEL_ID` se não viu o aviso)"
-            )
-            await interaction.edit_original_response(
-                content=(
-                    f"✅ Sessão de **{view.titulo}** criada! "
-                    f"Confira a **prévia do aviso** acima e a publicação{destino}."
-                ),
-                view=view,
-            )
+            try:
+                await interaction.delete_original_response()
+            except discord.HTTPException:
+                pass
 
 
 @bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
