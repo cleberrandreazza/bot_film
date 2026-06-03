@@ -393,11 +393,10 @@ async def _ajuda(send):
         value=(
             "Agenda uma sessão coletiva no Discord.\n\n"
             "**Exemplo:**\n"
-            "`/evento filme:Inception data:25/06 hora:20:00`\n\n"
+            "`/evento filme:Inception`\n\n"
             "**Parâmetros:**\n"
             "• **filme** — da fila ou busca no IMDb\n"
-            "• **data** — escolha na lista (Hoje, Amanhã…) ou `25/06`\n"
-            "• **hora** — escolha na lista ou `20:00` (Brasília)\n\n"
+            "• Depois, escolha **data** e **hora** nos menus (só você vê)\n\n"
             "A duração do evento segue o filme (OMDB). "
             "Usa sempre a sala de voz configurada no servidor (`EVENTO_VOICE_CHANNEL_ID`). "
             "Quem marcar **Interessado** e entrar na sala é contabilizado. "
@@ -783,29 +782,24 @@ async def _get_evento_ativo_por_titulo(titulo: str):
     return await asyncio.to_thread(convex_db.get_evento_ativo_by_titulo, titulo)
 
 
-@bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
-@app_commands.describe(
-    filme="Filme da fila (autocomplete) ou busca livre",
-    data="Data — escolha na lista ou digite dd/mm",
-    hora="Hora — escolha na lista ou digite HH:MM",
-)
-async def criar_evento_cmd(
-    interaction: discord.Interaction,
-    filme: str,
-    data: str,
-    hora: str,
-):
-    await interaction.response.defer()
+def _opcoes_select_data() -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(label=c.name, value=c.value)
+        for c in _sugestoes_data_evento("")
+    ]
 
-    dt, erro = _parse_data_hora(data, hora)
-    if erro:
-        await interaction.followup.send(f"❌ {erro}")
-        return
 
-    # Busca o filme no DB ou no IMDb
+def _opcoes_select_hora() -> list[discord.SelectOption]:
+    return [
+        discord.SelectOption(label=h, value=h)
+        for h in _HORAS_EVENTO_SUGESTAO
+    ]
+
+
+async def _resolver_filme_evento(filme: str) -> tuple[str, str, str, str] | None:
+    """Retorna filme_id, titulo, capa_url, ano_imdb ou None se não achar."""
     row = await asyncio.to_thread(convex_db.search_any_by_titulo, filme)
-    capa_url = ""
-    ano_imdb = ""
+    capa_url, ano_imdb = "", ""
     if row:
         filme_id, titulo = row["filme_id"], row["titulo"]
         detalhes = buscar_imdb_por_id(filme_id)
@@ -814,16 +808,31 @@ async def criar_evento_cmd(
             ano_imdb = str(detalhes.get("ano") or "")
             if ano_imdb == "N/A":
                 ano_imdb = ""
-    else:
-        found = buscar_imdb(filme)
-        if not found:
-            await interaction.followup.send(f"❌ Filme **{filme}** não encontrado.")
-            return
-        filme_id, titulo = found['id'], found['titulo']
-        capa_url = found.get("capa") or ""
-        ano_imdb = str(found.get("ano") or "")
-        if ano_imdb == "N/A":
-            ano_imdb = ""
+        return filme_id, titulo, capa_url, ano_imdb
+    found = buscar_imdb(filme)
+    if not found:
+        return None
+    filme_id, titulo = found["id"], found["titulo"]
+    capa_url = found.get("capa") or ""
+    ano_imdb = str(found.get("ano") or "")
+    if ano_imdb == "N/A":
+        ano_imdb = ""
+    return filme_id, titulo, capa_url, ano_imdb
+
+
+async def _criar_evento_discord(
+    interaction: discord.Interaction,
+    filme_id: str,
+    titulo: str,
+    capa_url: str,
+    ano_imdb: str,
+    data: str,
+    hora: str,
+) -> bool:
+    dt, erro = _parse_data_hora(data, hora)
+    if erro:
+        await interaction.followup.send(f"❌ {erro}", ephemeral=True)
+        return False
 
     omdb_data = _fetch_omdb(filme_id)
     if omdb_data:
@@ -846,9 +855,10 @@ async def criar_evento_cmd(
     if not canal:
         await interaction.followup.send(
             "❌ Canal de voz do evento não configurado ou não encontrado. "
-            "Defina `EVENTO_VOICE_CHANNEL_ID` no Railway (ID do canal de voz)."
+            "Defina `EVENTO_VOICE_CHANNEL_ID` no Railway (ID do canal de voz).",
+            ephemeral=True,
         )
-        return
+        return False
 
     duracao_evento = _duracao_evento(filme_id, omdb_data)
     duracao_min = int(duracao_evento.total_seconds() // 60)
@@ -876,11 +886,11 @@ async def criar_evento_cmd(
             try:
                 discord_event = await interaction.guild.create_scheduled_event(**event_kwargs)
             except Exception as e2:
-                await interaction.followup.send(f"❌ Erro ao criar o evento: {e2}")
-                return
+                await interaction.followup.send(f"❌ Erro ao criar o evento: {e2}", ephemeral=True)
+                return False
         else:
-            await interaction.followup.send(f"❌ Erro ao criar o evento: {e}")
-            return
+            await interaction.followup.send(f"❌ Erro ao criar o evento: {e}", ephemeral=True)
+            return False
 
     await asyncio.to_thread(
         convex_db.criar_evento,
@@ -897,6 +907,149 @@ async def criar_evento_cmd(
     else:
         print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
         await interaction.followup.send(f"🎬 **{titulo}**\n{discord_event.url}")
+    return True
+
+
+class EventoAgendarView(discord.ui.View):
+    """Menus de data/hora — o Discord não tem datepicker em slash commands."""
+
+    def __init__(
+        self,
+        author_id: int,
+        filme_id: str,
+        titulo: str,
+        capa_url: str,
+        ano_imdb: str,
+    ):
+        super().__init__(timeout=300)
+        self.author_id = author_id
+        self.filme_id = filme_id
+        self.titulo = titulo
+        self.capa_url = capa_url
+        self.ano_imdb = ano_imdb
+        self.data_val: str | None = None
+        self.hora_val: str | None = None
+        self.add_item(EventoDataSelect())
+        self.add_item(EventoHoraSelect())
+        self.add_item(EventoConfirmarButton())
+
+    def _mensagem_status(self) -> str:
+        data_txt = f"`{self.data_val}`" if self.data_val else "_não escolhida_"
+        hora_txt = f"`{self.hora_val}`" if self.hora_val else "_não escolhida_"
+        return (
+            f"📅 Agendar sessão: **{self.titulo}**\n\n"
+            f"Use os menus abaixo (não é campo de texto):\n"
+            f"• **Data:** {data_txt}\n"
+            f"• **Hora:** {hora_txt} _(Brasília)_"
+        )
+
+    def _atualizar_botao(self):
+        for item in self.children:
+            if isinstance(item, EventoConfirmarButton):
+                item.disabled = not (self.data_val and self.hora_val)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message(
+                "Só quem usou `/evento` pode escolher data e hora.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+
+
+class EventoDataSelect(discord.ui.Select):
+    def __init__(self):
+        super().__init__(
+            placeholder="📅 Escolha a data",
+            options=_opcoes_select_data(),
+            min_values=1,
+            max_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: EventoAgendarView = self.view
+        view.data_val = self.values[0]
+        view._atualizar_botao()
+        await interaction.response.edit_message(
+            content=view._mensagem_status(), view=view
+        )
+
+
+class EventoHoraSelect(discord.ui.Select):
+    def __init__(self):
+        super().__init__(
+            placeholder="🕐 Escolha o horário",
+            options=_opcoes_select_hora(),
+            min_values=1,
+            max_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: EventoAgendarView = self.view
+        view.hora_val = self.values[0]
+        view._atualizar_botao()
+        await interaction.response.edit_message(
+            content=view._mensagem_status(), view=view
+        )
+
+
+class EventoConfirmarButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="Criar sessão",
+            style=discord.ButtonStyle.green,
+            disabled=True,
+            emoji="✅",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: EventoAgendarView = self.view
+        if not view.data_val or not view.hora_val:
+            await interaction.response.send_message(
+                "Escolha data e hora nos menus acima.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        ok = await _criar_evento_discord(
+            interaction,
+            view.filme_id,
+            view.titulo,
+            view.capa_url,
+            view.ano_imdb,
+            view.data_val,
+            view.hora_val,
+        )
+        if ok:
+            for item in view.children:
+                item.disabled = True
+            await interaction.edit_original_response(
+                content=f"✅ Sessão de **{view.titulo}** criada! Veja o aviso no canal.",
+                view=view,
+            )
+
+
+@bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
+@app_commands.describe(filme="Filme da fila (autocomplete) ou busca livre")
+async def criar_evento_cmd(interaction: discord.Interaction, filme: str):
+    resolved = await _resolver_filme_evento(filme)
+    if not resolved:
+        await interaction.response.send_message(
+            f"❌ Filme **{filme}** não encontrado.", ephemeral=True
+        )
+        return
+    filme_id, titulo, capa_url, ano_imdb = resolved
+    view = EventoAgendarView(
+        interaction.user.id, filme_id, titulo, capa_url, ano_imdb
+    )
+    await interaction.response.send_message(
+        view._mensagem_status(),
+        view=view,
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="excluir_evento", description="🗑️ Cancela uma sessão de cinema agendada")
@@ -953,16 +1106,6 @@ async def evento_filme_autocomplete(interaction: discord.Interaction, current: s
         titulos = await asyncio.to_thread(convex_db.list_titulos_by_status, "watchlist")
         titulos = titulos[:8]
     return [app_commands.Choice(name=t[:100], value=t[:100]) for t in titulos]
-
-
-@criar_evento_cmd.autocomplete("data")
-async def evento_data_autocomplete(interaction: discord.Interaction, current: str):
-    return _sugestoes_data_evento(current)
-
-
-@criar_evento_cmd.autocomplete("hora")
-async def evento_hora_autocomplete(interaction: discord.Interaction, current: str):
-    return _sugestoes_hora_evento(current)
 
 
 # ================================================================

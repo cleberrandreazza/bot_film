@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for
+from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for, send_from_directory
 import requests
 import re
 import os
@@ -536,7 +536,7 @@ def api_fila_remover():
 
 @app.route('/favicon.ico')
 def favicon():
-    return redirect(url_for('static', filename='favicon.svg'))
+    return send_from_directory(app.static_folder, 'favicon.png', mimetype='image/png')
 
 
 @app.route('/')
