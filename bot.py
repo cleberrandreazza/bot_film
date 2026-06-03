@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 import convex_db
 from synopsis_utils import sinopse_para_filme
+from event_cover_utils import preparar_capa_evento
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
@@ -147,9 +148,6 @@ def buscar_imdb_por_id(imdb_id):
     return None
 
 
-_EVENT_COVER_MAX_BYTES = 8 * 1024 * 1024
-
-
 def _parse_runtime_minutes(runtime: str) -> int | None:
     if not runtime or runtime.upper() == "N/A":
         return None
@@ -215,33 +213,6 @@ def _formatar_duracao(minutos: int) -> str:
         h, m = divmod(minutos, 60)
         return f"{h}h {m:02d}min" if m else f"{h}h"
     return f"{minutos} min"
-
-
-def _baixar_imagem_evento(url: str) -> bytes | None:
-    """Baixa poster para capa do evento (Discord aceita JPG, PNG ou GIF, até 8 MB)."""
-    if not url:
-        return None
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.content
-        if not data or len(data) > _EVENT_COVER_MAX_BYTES:
-            return None
-        ctype = (resp.headers.get("Content-Type") or "").lower()
-        path = url.lower().split("?")[0]
-        ok_type = (
-            "image/jpeg" in ctype
-            or "image/png" in ctype
-            or "image/gif" in ctype
-            or path.endswith((".jpg", ".jpeg", ".png", ".gif"))
-        )
-        if not ok_type or "webp" in ctype or path.endswith(".webp"):
-            return None
-        return data
-    except Exception as e:
-        print(f"[Evento] Erro ao baixar capa: {e}")
-        return None
 
 
 def filme_em_cartaz_br(imdb_id: str, titulo: str, ano: str = "") -> bool:
@@ -825,7 +796,7 @@ async def _criar_evento_discord(
         entity_type=discord.EntityType.voice,
         privacy_level=discord.PrivacyLevel.guild_only,
     )
-    capa_bytes = _baixar_imagem_evento(capa_url)
+    capa_bytes = preparar_capa_evento(filme_id, capa_url)
     if capa_bytes:
         event_kwargs["image"] = capa_bytes
     try:
