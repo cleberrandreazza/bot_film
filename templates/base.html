@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-<body>
+<body data-pode-sorteio="{% if pode_sorteio %}1{% else %}0{% endif %}">
 
   <header class="site-header">
     <div class="container header-inner">
@@ -42,6 +42,84 @@
     </div>
   </footer>
 
+  <!-- Sorteio da fila -->
+  <div id="sorteio-modal" class="modal sorteio-modal" aria-hidden="true" role="dialog" aria-labelledby="sorteio-modal-title">
+    <div class="modal-backdrop" id="sorteio-modal-backdrop"></div>
+    <div class="sorteio-modal__panel">
+      <button type="button" class="modal-close sorteio-modal__close" id="sorteio-modal-close" aria-label="Fechar">&#x2715;</button>
+      <p class="sorteio-modal__eyebrow" id="sorteio-modal-phase">Sorteando…</p>
+      <h2 id="sorteio-modal-title" class="sorteio-modal__title">Na fila</h2>
+      <div class="sorteio-reel" aria-live="polite">
+        <div class="sorteio-reel__glow"></div>
+        <a
+          id="sorteio-poster-link"
+          class="sorteio-reel__link"
+          href="#"
+          tabindex="-1"
+          aria-disabled="true"
+        >
+          <div class="sorteio-reel__frame">
+            <img id="sorteio-poster" class="sorteio-reel__poster" src="" alt="" hidden />
+            <div id="sorteio-poster-fallback" class="sorteio-reel__fallback" hidden></div>
+          </div>
+        </a>
+      </div>
+      <p id="sorteio-film-title" class="sorteio-modal__film"></p>
+      <p id="sorteio-film-year" class="sorteio-modal__year"></p>
+      <div id="sorteio-result-actions" class="sorteio-modal__actions" hidden>
+        <form id="sorteio-evento-form" class="sorteio-evento-form" hidden>
+          <p class="sorteio-evento-form__label">Agendar sessão no Discord</p>
+          <p id="sorteio-evento-tz" class="sorteio-evento-form__tz">Horário de Brasília (BRT)</p>
+          <div class="sorteio-evento-form__row">
+            <div class="sorteio-evento-form__field sorteio-evento-form__field--date" role="group" aria-labelledby="sorteio-date-label">
+              <span id="sorteio-date-label">Data</span>
+              <div class="sorteio-dd-select" id="sorteio-date-select">
+                <input type="hidden" id="sorteio-evento-data" value="" required />
+                <button
+                  type="button"
+                  class="sorteio-dd-select__trigger"
+                  id="sorteio-date-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-labelledby="sorteio-date-label"
+                >
+                  <span class="sorteio-dd-select__value sorteio-dd-select__value--placeholder" id="sorteio-date-value">Escolha a data</span>
+                  <span class="sorteio-dd-select__chev" aria-hidden="true"></span>
+                </button>
+                <ul class="sorteio-dd-select__list" id="sorteio-date-list" role="listbox" hidden></ul>
+              </div>
+            </div>
+            <div class="sorteio-evento-form__field sorteio-evento-form__field--time" role="group" aria-labelledby="sorteio-time-label">
+              <span id="sorteio-time-label">Horário</span>
+              <div class="sorteio-dd-select" id="sorteio-time-select">
+                <input type="hidden" id="sorteio-evento-hora" value="" required />
+                <button
+                  type="button"
+                  class="sorteio-dd-select__trigger"
+                  id="sorteio-time-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-labelledby="sorteio-time-label"
+                >
+                  <span class="sorteio-dd-select__value sorteio-dd-select__value--placeholder" id="sorteio-time-value">Escolha o horário</span>
+                  <span class="sorteio-dd-select__chev" aria-hidden="true"></span>
+                </button>
+                <ul class="sorteio-dd-select__list" id="sorteio-time-list" role="listbox" hidden></ul>
+              </div>
+            </div>
+          </div>
+          <p class="sorteio-evento-form__hint">Mesmas opções do comando <strong>/evento</strong> no Discord (datas e horários 17:00–23:00, BRT).</p>
+          <button type="submit" class="sorteio-btn sorteio-btn--primary sorteio-btn--evento" id="sorteio-evento-submit" disabled>
+            Criar sessão
+          </button>
+        </form>
+        <p id="sorteio-evento-success" class="sorteio-evento-success" hidden></p>
+      </div>
+      <button type="button" class="sorteio-btn sorteio-btn--ghost sorteio-again-btn" id="sorteio-again-btn">Sortear de novo</button>
+      <p id="sorteio-error" class="sorteio-modal__error" hidden></p>
+    </div>
+  </div>
+
   <!-- Trailer Modal -->
   <div id="trailer-modal" class="modal" aria-hidden="true" role="dialog">
     <div class="modal-backdrop" id="modal-backdrop"></div>
@@ -54,6 +132,7 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/sorteio.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

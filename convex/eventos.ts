@@ -78,6 +78,21 @@ export const getAtivoByCanal = query({
   },
 });
 
+/** IDs de filmes com sessão agendada ou em andamento no Discord. */
+export const filmeIdsComEventoAtivo = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("eventos").collect();
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (ATIVOS.includes(r.status) && r.filme_id) {
+        ids.add(r.filme_id);
+      }
+    }
+    return [...ids];
+  },
+});
+
 export const listAtivos = query({
   args: { titulo: v.optional(v.string()), limit: v.optional(v.number()) },
   handler: async (ctx, args) => {

@@ -11,8 +11,10 @@ import time
 from datetime import datetime, timezone, timedelta
 
 import convex_db
+from sorteio_utils import sortear_fila
 from synopsis_utils import sinopse_para_filme
 from event_cover_utils import preparar_capa_evento, genero_para_evento
+from evento_service import criar_evento_agendado
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
@@ -425,7 +427,7 @@ async def _sorteio(send):
         await send("❌ A fila está vazia! Use `$adicionar` ou `/adicionar` para colocar filmes na lista.")
         return
 
-    await send("🎲 Sorteando… (ignorando filmes em cartaz no cinema)")
+    await send("🎲 Sorteando… (ignorando filmes em cartaz e com evento no Discord)")
     elegiveis, em_cartaz = await asyncio.to_thread(_filtrar_fila_fora_cartaz, watchlist)
 
     if not elegiveis:
@@ -441,7 +443,22 @@ async def _sorteio(send):
             await send("❌ Não foi possível sortear agora. Tente novamente em instantes.")
         return
 
-    filme_id, titulo = random.choice(elegiveis)
+    bloqueados = await asyncio.to_thread(convex_db.filme_ids_com_evento_ativo)
+    try:
+        _, (filme_id, titulo) = await asyncio.to_thread(
+            sortear_fila,
+            elegiveis,
+            bloqueados,
+            get_filme_id=lambda par: par[0],
+        )
+    except ValueError as e:
+        if str(e) == "sem_elegiveis_evento":
+            await send(
+                "❌ Todos os filmes elegíveis já têm **sessão agendada ou ativa** no Discord.\n"
+                "Cancele ou encerre um evento (`/excluir_evento`) antes de sortear de novo."
+            )
+            return
+        raise
     detalhes = buscar_imdb_por_id(filme_id)
 
     if detalhes:
@@ -831,87 +848,24 @@ async def _criar_evento_discord(
     data: str,
     hora: str,
 ) -> bool:
-    dt, erro = _parse_data_hora(data, hora)
+    """Mesmo fluxo do site: evento_service.criar_evento_agendado + aviso público."""
+    canal_extra = str(interaction.channel_id) if interaction.channel_id else None
+    resultado, erro = await asyncio.to_thread(
+        criar_evento_agendado,
+        filme_id,
+        titulo,
+        capa_url,
+        data,
+        hora,
+        ano_imdb,
+        announce_channel_id=canal_extra,
+    )
     if erro:
         await interaction.followup.send(f"❌ {erro}", ephemeral=True)
         return False
-
-    omdb_data = _fetch_omdb(filme_id)
-    if omdb_data:
-        meta = {
-            "ano": _omdb_valor(omdb_data.get("Year", ""))[:4],
-            "genero": _omdb_valor(omdb_data.get("Genre", "")),
-            "sinopse": _omdb_valor(omdb_data.get("Plot", "")),
-        }
-    else:
-        meta = {"ano": "", "genero": "", "sinopse": ""}
-    ano_evt = meta["ano"] or ano_imdb
-    genero_evt = genero_para_evento(filme_id, meta["genero"])
-    titulo_omdb = _omdb_valor(omdb_data.get("Title", "")) if omdb_data else ""
-    sinopse_evt = sinopse_para_filme(
-        titulo, ano_evt, titulo_omdb, meta["sinopse"], filme_id
-    )
-
-    canal = await _get_evento_voice_channel(interaction.guild)
-    if not canal:
-        await interaction.followup.send(
-            "❌ Canal de voz do evento não configurado ou não encontrado. "
-            "Defina `EVENTO_VOICE_CHANNEL_ID` no Railway (ID do canal de voz).",
-            ephemeral=True,
-        )
-        return False
-
-    duracao_evento = _duracao_evento(filme_id, omdb_data)
-    duracao_min = int(duracao_evento.total_seconds() // 60)
-
-    # Cria o evento Discord (com capa do filme, se disponível)
-    event_kwargs = dict(
-        name=f"🎬 {titulo}",
-        description=_descricao_evento(
-            canal, duracao_min, ano_evt, genero_evt, sinopse_evt
-        ),
-        start_time=dt,
-        end_time=dt + duracao_evento,
-        channel=canal,
-        entity_type=discord.EntityType.voice,
-        privacy_level=discord.PrivacyLevel.guild_only,
-    )
-    capa_bytes = preparar_capa_evento(filme_id, capa_url)
-    if capa_bytes:
-        event_kwargs["image"] = capa_bytes
-    try:
-        discord_event = await interaction.guild.create_scheduled_event(**event_kwargs)
-    except Exception as e:
-        if "image" in event_kwargs:
-            del event_kwargs["image"]
-            try:
-                discord_event = await interaction.guild.create_scheduled_event(**event_kwargs)
-            except Exception as e2:
-                await interaction.followup.send(f"❌ Erro ao criar o evento: {e2}", ephemeral=True)
-                return False
-        else:
-            await interaction.followup.send(f"❌ Erro ao criar o evento: {e}", ephemeral=True)
-            return False
-
-    await asyncio.to_thread(
-        convex_db.criar_evento,
-        str(discord_event.id), filme_id, titulo,
-        dt.isoformat(), str(canal.id), str(interaction.guild.id),
-    )
-
-    role = await _get_evento_notify_role(interaction.guild)
-    if not role:
-        print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
-    publicado = await _enviar_aviso_evento_publico(
-        interaction, discord_event.url, role
-    )
-    if not publicado:
-        await interaction.followup.send(
-            "⚠️ Evento criado, mas o aviso **não foi publicado** em canal de texto. "
-            "Use `/evento` em um canal de texto ou defina `EVENTO_ANNOUNCE_CHANNEL_ID` "
-            "no Railway (ID do canal de avisos).",
-            ephemeral=True,
-        )
+    aviso = (resultado or {}).get("warning")
+    if aviso:
+        await interaction.followup.send(f"⚠️ {aviso}", ephemeral=True)
     return True
 
 

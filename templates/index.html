@@ -38,8 +38,17 @@
     <div class="section-header">
       <h2><span class="pill pill--green">Na Fila</span></h2>
       <span class="section-count">{{ watchlist | length }} filmes</span>
-      {% if watchlist | length > 6 %}
-      <a href="/filmes/fila" class="ver-todos-btn">Ver Todos ›</a>
+      {% if watchlist and (pode_sorteio or watchlist | length > 6) %}
+      <div class="section-header__actions">
+        {% if pode_sorteio %}
+        <button type="button" class="sorteio-btn" data-sorteio-open aria-haspopup="dialog">
+          Sortear da fila
+        </button>
+        {% endif %}
+        {% if watchlist | length > 6 %}
+        <a href="/filmes/fila" class="ver-todos-btn">Ver Todos ›</a>
+        {% endif %}
+      </div>
       {% endif %}
     </div>
     {% if watchlist %}

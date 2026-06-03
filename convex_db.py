@@ -217,6 +217,12 @@ def get_evento_ativo_by_canal(canal_id: str) -> dict | None:
     return _q("eventos:getAtivoByCanal", {"canal_id": str(canal_id)})
 
 
+def filme_ids_com_evento_ativo() -> set[str]:
+    """Filmes com evento Discord agendado ou ativo (não entram no sorteio)."""
+    ids = _q("eventos:filmeIdsComEventoAtivo", {}) or []
+    return set(ids)
+
+
 def list_eventos_ativos(titulo: str | None = None, limit: int = 8) -> list[dict]:
     args = {"limit": limit}
     if titulo:

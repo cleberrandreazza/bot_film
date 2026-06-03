@@ -11,7 +11,14 @@
       <a href="/" class="lista-back">&#8592; Início</a>
       <h1 class="lista-titulo">{{ titulo }}</h1>
     </div>
-    <span class="lista-total">{{ total }} filmes</span>
+    <div class="lista-header__right">
+      {% if secao == 'fila' and total > 0 and pode_sorteio %}
+      <button type="button" class="sorteio-btn" data-sorteio-open aria-haspopup="dialog">
+        Sortear da fila
+      </button>
+      {% endif %}
+      <span class="lista-total">{{ total }} filmes</span>
+    </div>
   </div>
   <div class="library-search library-search--list" data-library-search>
     <input

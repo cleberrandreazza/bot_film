@@ -1,4 +1,5 @@
 from flask import Flask, render_template, jsonify, abort, request, session, redirect, url_for, send_from_directory
+import random
 import requests
 import re
 import os
@@ -6,6 +7,9 @@ import time
 import urllib.parse
 
 import convex_db
+from discord_guild import invalidar_cache_usuario, usuario_e_cinefilo
+from evento_service import criar_evento_agendado, opcoes_picker_evento
+from sorteio_utils import sortear_fila
 from synopsis_utils import sinopse_para_filme
 
 try:
@@ -41,15 +45,30 @@ def _avatar_url(user_id: str, avatar: str | None) -> str:
 @app.context_processor
 def inject_user():
     u = None
+    pode_sorteio = False
     if 'user_id' in session:
+        uid = session['user_id']
         u = {
-            'user_id':      session['user_id'],
+            'user_id':      uid,
             'username':     session.get('username', ''),
             'display_name': session.get('display_name', session.get('username', '')),
             'avatar':       session.get('avatar'),
-            'avatar_url':   _avatar_url(session['user_id'], session.get('avatar')),
+            'avatar_url':   _avatar_url(uid, session.get('avatar')),
         }
-    return {'current_user': u}
+        pode_sorteio = usuario_e_cinefilo(
+            uid, session.get('discord_access_token'),
+        )
+    return {'current_user': u, 'pode_sorteio': pode_sorteio}
+
+
+def _json_cinefilo_required():
+    if 'user_id' not in session:
+        return jsonify({'error': 'not_logged_in'}), 401
+    if not usuario_e_cinefilo(
+        session['user_id'], session.get('discord_access_token'),
+    ):
+        return jsonify({'error': 'sem_permissao'}), 403
+    return None
 
 JW_GRAPHQL = 'https://apis.justwatch.com/graphql'
 JW_QUERY = (
@@ -381,7 +400,7 @@ def auth_login():
         'client_id':    DISCORD_CLIENT_ID,
         'redirect_uri': DISCORD_REDIRECT_URI,
         'response_type':'code',
-        'scope':        'identify',
+        'scope':        'identify guilds.members.read',
         'state':        next_url,
     })
     return redirect(f'https://discord.com/oauth2/authorize?{params}')
@@ -408,10 +427,12 @@ def auth_callback():
     if not r2.ok:
         return redirect('/')
     u = r2.json()
+    invalidar_cache_usuario(u['id'])
     session['user_id']      = u['id']
     session['username']     = u['username']
     session['display_name'] = u.get('global_name') or u['username']
     session['avatar']       = u.get('avatar')
+    session['discord_access_token'] = token
     return redirect(next_url)
 
 
@@ -420,6 +441,9 @@ def auth_logout():
     next_url = request.args.get('next') or request.referrer or '/'
     if not next_url.startswith('/'):
         next_url = '/'
+    if 'user_id' in session:
+        invalidar_cache_usuario(session['user_id'])
+    session.pop('discord_access_token', None)
     session.clear()
     return redirect(next_url)
 
@@ -513,6 +537,90 @@ def api_fila_remover():
 
     convex_db.remove_by_filme_status(imdb_id, 'watchlist')
     return jsonify({'in_fila': False})
+
+
+def _fila_para_json() -> list[dict]:
+    """Lista completa da watchlist enriquecida (poster/ano) para o sorteio."""
+    try:
+        rows = convex_db.list_by_status('watchlist')
+    except Exception:
+        return []
+    out = []
+    for row in _enrich_rows(rows):
+        out.append({
+            'filme_id': row.get('filme_id', ''),
+            'titulo': row.get('titulo', ''),
+            'poster': row.get('poster', '') or '',
+            'ano': row.get('ano', '') or '',
+        })
+    return [f for f in out if f['filme_id']]
+
+
+@app.route('/api/fila')
+def api_fila_lista():
+    filmes = _fila_para_json()
+    return jsonify({'filmes': filmes, 'count': len(filmes)})
+
+
+@app.route('/api/fila/sorteio', methods=['POST'])
+def api_fila_sorteio():
+    denied = _json_cinefilo_required()
+    if denied:
+        return denied
+    filmes = _fila_para_json()
+    if not filmes:
+        return jsonify({'error': 'fila_vazia'}), 400
+    try:
+        bloqueados = convex_db.filme_ids_com_evento_ativo()
+        pool, escolhido = sortear_fila(
+            filmes,
+            bloqueados,
+            get_filme_id=lambda f: f.get('filme_id', ''),
+        )
+    except ValueError as e:
+        if str(e) == 'sem_elegiveis_evento':
+            return jsonify({
+                'error': 'sem_elegiveis_evento',
+                'message': (
+                    'Todos os filmes da fila já têm sessão agendada ou ativa no Discord. '
+                    'Cancele ou encerre um evento antes de sortear de novo.'
+                ),
+            }), 400
+        raise
+    return jsonify({'filme': escolhido, 'pool': pool, 'pool_size': len(pool)})
+
+
+@app.route('/api/evento/opcoes')
+def api_evento_opcoes():
+    denied = _json_cinefilo_required()
+    if denied:
+        return denied
+    return jsonify(opcoes_picker_evento())
+
+
+@app.route('/api/evento/criar', methods=['POST'])
+def api_evento_criar():
+    denied = _json_cinefilo_required()
+    if denied:
+        return denied
+    body = request.json or {}
+    filme_id = (body.get('filme_id') or '').strip()
+    titulo = (body.get('titulo') or '').strip()
+    data = (body.get('data') or '').strip()
+    hora = (body.get('hora') or '').strip()
+    capa_url = (body.get('poster') or body.get('capa_url') or '').strip()
+    ano = (body.get('ano') or '').strip()
+    if not filme_id or not titulo:
+        return jsonify({'error': 'dados_invalidos'}), 400
+    if not data or not hora:
+        return jsonify({'error': 'data_hora_obrigatorias'}), 400
+
+    resultado, erro = criar_evento_agendado(
+        filme_id, titulo, capa_url, data, hora, ano_imdb=ano,
+    )
+    if erro:
+        return jsonify({'error': 'criar_falhou', 'message': erro}), 400
+    return jsonify({'ok': True, **resultado})
 
 
 # ─────────────────────────────────────────────── routes ──
