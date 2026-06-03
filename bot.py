@@ -700,15 +700,42 @@ async def _get_evento_announce_channel(
     return None
 
 
+def _formatar_data_evento_aviso(dt: datetime) -> str:
+    wd = _DIAS_SEMANA_PT[dt.weekday()]
+    return f"{dt.strftime('%d/%m/%Y')} ({wd})"
+
+
+def _texto_aviso_evento(
+    titulo: str,
+    data_txt: str,
+    hora: str,
+    sala_nome: str,
+    role: discord.Role | None,
+) -> tuple[str, discord.AllowedMentions]:
+    corpo = (
+        f"🎬 **{titulo}**\n"
+        f"📅 **Data:** {data_txt}\n"
+        f"🕐 **Hora:** {hora}\n"
+        f"🔊 **Sala:** {sala_nome}"
+    )
+    if role:
+        return (
+            f"<@&{role.id}>\n\n{corpo}",
+            discord.AllowedMentions(roles=[role.id]),
+        )
+    return corpo, discord.AllowedMentions.none()
+
+
 async def _enviar_aviso_evento_publico(
     interaction: discord.Interaction,
     titulo: str,
-    discord_event: discord.ScheduledEvent,
+    dt: datetime,
+    hora: str,
+    sala_nome: str,
     role: discord.Role | None,
 ) -> bool:
     """
-    Aviso em canal de texto via channel.send (followup de interação não pinga role).
-    Retorna True se publicou no canal.
+    Uma mensagem de alerta no canal (título, data, hora, sala) com ping na role.
     """
     canal = await _get_evento_announce_channel(interaction.guild, interaction)
     me = interaction.guild.me
@@ -729,28 +756,15 @@ async def _enviar_aviso_evento_publico(
             "ping da role pode falhar."
         )
 
-    detalhes = f"🎬 **{titulo}**\n{discord_event.url}"
+    data_txt = _formatar_data_evento_aviso(dt)
+    texto, mentions = _texto_aviso_evento(titulo, data_txt, hora, sala_nome, role)
     try:
-        if role:
-            if not role.mentionable:
-                print(
-                    f"[Evento] Role '{role.name}' não está como mencionável; "
-                    "usando permissão MENTION_EVERYONE do bot."
-                )
-            # Mensagem só com o ping — padrão mais confiável que interaction followup
-            await canal.send(
-                content=f"<@&{role.id}>",
-                allowed_mentions=discord.AllowedMentions(roles=[role.id]),
+        if role and not role.mentionable:
+            print(
+                f"[Evento] Role '{role.name}' não está como mencionável; "
+                "usando permissão MENTION_EVERYONE do bot."
             )
-            await canal.send(
-                content=detalhes,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        else:
-            await canal.send(
-                content=detalhes,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+        await canal.send(content=texto, allowed_mentions=mentions)
         print(f"[Evento] Aviso publicado em #{canal.name} (id {canal.id}).")
         return True
     except discord.HTTPException as e:
@@ -908,7 +922,7 @@ async def _criar_evento_discord(
     if not role:
         print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
     publicado = await _enviar_aviso_evento_publico(
-        interaction, titulo, discord_event, role
+        interaction, titulo, dt, hora, canal.name, role
     )
     if not publicado:
         await interaction.followup.send(
