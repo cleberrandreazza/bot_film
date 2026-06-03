@@ -396,8 +396,8 @@ async def _ajuda(send):
             "`/evento filme:Inception data:25/06 hora:20:00`\n\n"
             "**Parâmetros:**\n"
             "• **filme** — da fila ou busca no IMDb\n"
-            "• **data** — `25/06` ou `25/06/2026`\n"
-            "• **hora** — `20:00` ou `20h` (Brasília)\n\n"
+            "• **data** — escolha na lista (Hoje, Amanhã…) ou `25/06`\n"
+            "• **hora** — escolha na lista ou `20:00` (Brasília)\n\n"
             "A duração do evento segue o filme (OMDB). "
             "Usa sempre a sala de voz configurada no servidor (`EVENTO_VOICE_CHANNEL_ID`). "
             "Quem marcar **Interessado** e entrar na sala é contabilizado. "
@@ -631,6 +631,74 @@ async def slash_sorteio(interaction: discord.Interaction):
 # COMANDO: EVENTO
 # ================================================================
 
+_DIAS_SEMANA_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
+_HORAS_EVENTO_SUGESTAO = (
+    "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
+    "20:00", "20:30", "21:00", "21:30", "22:00", "22:30", "23:00",
+)
+
+
+def _parse_data_evento(data: str, now: datetime) -> datetime | None:
+    """Interpreta data (dd/mm, aliases ou autocomplete)."""
+    data = data.strip()
+    alias = data.lower().replace("ã", "a")
+    if alias == "hoje":
+        return datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
+    if alias == "amanha":
+        d = now.date() + timedelta(days=1)
+        return datetime(d.year, d.month, d.day, tzinfo=now.tzinfo)
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d/%m"):
+        try:
+            dt = datetime.strptime(data, fmt)
+            if fmt == "%d/%m":
+                dt = dt.replace(year=now.year)
+                if dt.date() < now.date():
+                    dt = dt.replace(year=now.year + 1)
+            return dt.replace(tzinfo=now.tzinfo)
+        except ValueError:
+            continue
+    return None
+
+
+def _sugestoes_data_evento(current: str) -> list[app_commands.Choice]:
+    """Próximas datas para autocomplete (máx. 25 opções do Discord)."""
+    BRT = timezone(timedelta(hours=-3))
+    now = datetime.now(BRT)
+    needle = (current or "").strip().lower()
+    choices: list[app_commands.Choice] = []
+    for offset in range(90):
+        if len(choices) >= 25:
+            break
+        day = now.date() + timedelta(days=offset)
+        valor = day.strftime("%d/%m/%Y")
+        abrev = day.strftime("%d/%m")
+        wd = _DIAS_SEMANA_PT[day.weekday()]
+        if offset == 0:
+            rotulo = f"Hoje · {abrev} ({wd})"
+        elif offset == 1:
+            rotulo = f"Amanhã · {abrev} ({wd})"
+        else:
+            rotulo = f"{wd} · {valor}"
+        if needle:
+            haystack = f"{rotulo} {valor} {abrev} hoje amanha".lower()
+            if needle not in haystack:
+                continue
+        choices.append(app_commands.Choice(name=rotulo[:100], value=valor[:100]))
+    return choices
+
+
+def _sugestoes_hora_evento(current: str) -> list[app_commands.Choice]:
+    needle = (current or "").strip().lower().replace("h", ":")
+    choices: list[app_commands.Choice] = []
+    for hora in _HORAS_EVENTO_SUGESTAO:
+        if needle and needle not in hora:
+            continue
+        choices.append(app_commands.Choice(name=hora, value=hora))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
 def _parse_data_hora(data: str, hora: str):
     """Converte strings de data e hora para datetime BRT (UTC-3)."""
     BRT = timezone(timedelta(hours=-3))
@@ -640,19 +708,9 @@ def _parse_data_hora(data: str, hora: str):
         hora = hora + ':00'
 
     now = datetime.now(BRT)
-    dt  = None
-    for fmt in ('%d/%m/%Y', '%d/%m/%y', '%d/%m'):
-        try:
-            dt = datetime.strptime(data, fmt)
-            if fmt == '%d/%m':
-                dt = dt.replace(year=now.year)
-                if dt.date() < now.date():
-                    dt = dt.replace(year=now.year + 1)
-            break
-        except ValueError:
-            continue
+    dt = _parse_data_evento(data, now)
     if not dt:
-        return None, "Data inválida. Use **dd/mm** ou **dd/mm/aaaa**."
+        return None, "Data inválida. Use **dd/mm** ou **dd/mm/aaaa** (ou escolha na lista)."
 
     try:
         t = datetime.strptime(hora, '%H:%M').time()
@@ -728,8 +786,8 @@ async def _get_evento_ativo_por_titulo(titulo: str):
 @bot.tree.command(name="evento", description="📅 Cria uma sessão de cinema no servidor")
 @app_commands.describe(
     filme="Filme da fila (autocomplete) ou busca livre",
-    data="Data do evento — ex: 25/06",
-    hora="Hora do evento — ex: 20:00",
+    data="Data — escolha na lista ou digite dd/mm",
+    hora="Hora — escolha na lista ou digite HH:MM",
 )
 async def criar_evento_cmd(
     interaction: discord.Interaction,
@@ -895,6 +953,16 @@ async def evento_filme_autocomplete(interaction: discord.Interaction, current: s
         titulos = await asyncio.to_thread(convex_db.list_titulos_by_status, "watchlist")
         titulos = titulos[:8]
     return [app_commands.Choice(name=t[:100], value=t[:100]) for t in titulos]
+
+
+@criar_evento_cmd.autocomplete("data")
+async def evento_data_autocomplete(interaction: discord.Interaction, current: str):
+    return _sugestoes_data_evento(current)
+
+
+@criar_evento_cmd.autocomplete("hora")
+async def evento_hora_autocomplete(interaction: discord.Interaction, current: str):
+    return _sugestoes_hora_evento(current)
 
 
 # ================================================================
