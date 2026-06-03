@@ -721,7 +721,7 @@ def _texto_aviso_evento(
     if role:
         return (
             f"<@&{role.id}>\n\n{corpo}",
-            discord.AllowedMentions(roles=[role.id]),
+            discord.AllowedMentions(roles=[role]),
         )
     return corpo, discord.AllowedMentions.none()
 
