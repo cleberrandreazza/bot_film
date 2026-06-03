@@ -713,35 +713,25 @@ def _texto_aviso_evento(
     return f"Novo evento marcado\n{event_url}", discord.AllowedMentions.none()
 
 
-def _texto_aviso_evento_preview(event_url: str, role: discord.Role | None) -> str:
-    """Prévia sem ping (só o autor vê antes de publicar no canal)."""
-    if role:
-        return f"Novo evento marcado @{role.name}\n{event_url}"
-    return f"Novo evento marcado\n{event_url}"
-
-
 async def _enviar_aviso_evento_publico(
     interaction: discord.Interaction,
     event_url: str,
     role: discord.Role | None,
-) -> tuple[bool, str]:
-    """
-    Mostra prévia ephemeral ao autor e publica aviso no canal com menção à role.
-    """
+) -> bool:
+    """Publica aviso no canal com menção à role e link do evento."""
     canal = await _get_evento_announce_channel(interaction.guild, interaction)
     me = interaction.guild.me
-    preview = _texto_aviso_evento_preview(event_url, role)
     if not canal:
         print("[Evento] Nenhum canal de texto para aviso público.")
-        return False, preview
+        return False
     if not me:
         print("[Evento] Bot sem membro no servidor.")
-        return False, preview
+        return False
 
     perms = canal.permissions_for(me)
     if not perms.send_messages:
         print(f"[Evento] Sem permissão de enviar em #{canal.name}.")
-        return False, preview
+        return False
     if role and not perms.mention_everyone:
         print(
             f"[Evento] Bot sem 'Mencionar @everyone/cargos' em #{canal.name} — "
@@ -750,12 +740,6 @@ async def _enviar_aviso_evento_publico(
 
     texto, mentions = _texto_aviso_evento(event_url, role)
     try:
-        await interaction.followup.send(
-            f"📋 **Prévia do aviso** (será publicado em **#{canal.name}**):\n\n"
-            f"```\n{preview}\n```",
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
         if role and not role.mentionable:
             print(
                 f"[Evento] Role '{role.name}' não está como mencionável; "
@@ -763,10 +747,10 @@ async def _enviar_aviso_evento_publico(
             )
         await canal.send(content=texto, allowed_mentions=mentions)
         print(f"[Evento] Aviso publicado em #{canal.name} (id {canal.id}).")
-        return True, preview
+        return True
     except discord.HTTPException as e:
         print(f"[Evento] Erro ao publicar aviso em #{canal.name}: {e}")
-        return False, preview
+        return False
 
 
 def _descricao_evento(
@@ -918,7 +902,7 @@ async def _criar_evento_discord(
     role = await _get_evento_notify_role(interaction.guild)
     if not role:
         print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
-    publicado, _ = await _enviar_aviso_evento_publico(
+    publicado = await _enviar_aviso_evento_publico(
         interaction, discord_event.url, role
     )
     if not publicado:
