@@ -56,6 +56,7 @@ def _resolve_web_url() -> str:
 WEB_URL = _resolve_web_url()
 EVENTO_VOICE_CHANNEL_ID = os.environ.get("EVENTO_VOICE_CHANNEL_ID", "").strip()
 EVENTO_VOICE_CHANNEL_NAME = os.environ.get("EVENTO_VOICE_CHANNEL_NAME", "").strip()
+EVENTO_NOTIFY_ROLE_NAME = "Cinéfilo"
 OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "").strip()
 _EVENTO_DURACAO_PADRAO_MIN = 120
 _EVENTO_DURACAO_MIN_MIN = 30
@@ -496,6 +497,15 @@ async def _get_evento_voice_channel(guild: discord.Guild) -> discord.VoiceChanne
     return None
 
 
+def _get_evento_notify_role(guild: discord.Guild) -> discord.Role | None:
+    """Role mencionada ao criar evento — busca pelo nome (Cinéfilo)."""
+    alvo = EVENTO_NOTIFY_ROLE_NAME.casefold()
+    for role in guild.roles:
+        if role.name.casefold() == alvo:
+            return role
+    return None
+
+
 async def _get_evento_ativo_por_titulo(titulo: str):
     return await asyncio.to_thread(convex_db.get_evento_ativo_by_titulo, titulo)
 
@@ -583,6 +593,20 @@ async def criar_evento_cmd(
         str(discord_event.id), filme_id, titulo,
         dt.isoformat(), str(canal.id), str(interaction.guild.id),
     )
+
+    data_fmt = dt.strftime("%d/%m/%Y às %H:%M")
+    role = _get_evento_notify_role(interaction.guild)
+    if role:
+        await interaction.followup.send(
+            f"📅 **Novo evento de cinema!** {role.mention}\n"
+            f"🎬 **{titulo}** — {data_fmt}",
+            allowed_mentions=discord.AllowedMentions(roles=True),
+        )
+    else:
+        print(f"[Evento] Role '{EVENTO_NOTIFY_ROLE_NAME}' não encontrada — aviso sem menção.")
+        await interaction.followup.send(
+            f"📅 **Novo evento de cinema!**\n🎬 **{titulo}** — {data_fmt}"
+        )
 
     # Só o link: o Discord gera o preview nativo do evento (capa, Interessado, etc.)
     await interaction.followup.send(discord_event.url)
