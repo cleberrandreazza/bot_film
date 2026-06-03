@@ -441,7 +441,7 @@ if (sorteioModal && podeSorteio) {
     const elegiveis = pool.filter((f) => !cartazRemovidos.has(f.filme_id));
     if (!elegiveis.length) {
       throw new Error(
-        'Os candidatos deste sorteio estão em cartaz no cinema. Tente de novo em instantes.',
+        'Nenhum candidato elegível (em cartaz ou ainda não lançado). Tente de novo em instantes.',
       );
     }
     return elegiveis[Math.floor(Math.random() * elegiveis.length)];

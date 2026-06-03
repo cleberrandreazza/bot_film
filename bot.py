@@ -378,8 +378,8 @@ async def _sorteio(send):
             return
         if codigo == "todos_em_cartaz":
             await send(
-                "❌ Os 10 candidatos sorteados estão **em cartaz** no cinema agora.\n"
-                "Tente de novo mais tarde ou adicione outros títulos à fila."
+                "❌ Os candidatos desta rodada estão **em cartaz** ou **ainda não lançados**.\n"
+                "Tente de novo ou adicione outros títulos à fila."
             )
             return
         raise

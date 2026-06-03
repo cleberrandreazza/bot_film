@@ -1,14 +1,29 @@
-"""Filmes em cartaz no Brasil (JustWatch) — compartilhado site + bot."""
+"""Filmes em cartaz / lançamento — elegibilidade do sorteio (site + bot)."""
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections.abc import Callable
+from datetime import date, datetime, timedelta, timezone
 from typing import TypeVar
 
 import requests
 
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()
+
 T = TypeVar("T")
+
+BRT = timezone(timedelta(hours=-3))
+_OMDB_KEY = os.environ.get("OMDB_API_KEY", "").strip()
+_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; CineBotecao/1.0)"}
 
 _JW_GRAPHQL = "https://apis.justwatch.com/graphql"
 _JW_CARTAZ_QUERY = (
@@ -22,15 +37,79 @@ _JW_CARTAZ_QUERY = (
     " } } } } }"
 )
 _CARTAZ_CACHE: dict[str, tuple[bool, float]] = {}
-_CARTAZ_CACHE_TTL = 6 * 3600
+_EXCLUIR_SORTEIO_CACHE: dict[str, tuple[bool, float]] = {}
+_CACHE_TTL = 6 * 3600
+
+
+def _hoje_brt() -> date:
+    return datetime.now(BRT).date()
+
+
+def _parse_ano(ano: str) -> int | None:
+    if not ano or str(ano).strip().upper() == "N/A":
+        return None
+    m = re.search(r"\d{4}", str(ano))
+    return int(m.group(0)) if m else None
+
+
+def _fetch_omdb(imdb_id: str) -> dict | None:
+    if not _OMDB_KEY or not imdb_id:
+        return None
+    try:
+        r = requests.get(
+            "https://www.omdbapi.com/",
+            params={"apikey": _OMDB_KEY, "i": imdb_id},
+            headers=_HTTP_HEADERS,
+            timeout=8,
+        )
+        if r.ok:
+            data = r.json()
+            if data.get("Response") == "True":
+                return data
+    except Exception as e:
+        print(f"[Cartaz] OMDB: {e}")
+    return None
+
+
+def _data_lancamento(imdb_id: str, ano: str) -> date | None:
+    """Primeira data de lançamento conhecida (OMDB Released ou 1º/jan do ano)."""
+    data = _fetch_omdb(imdb_id) if imdb_id else None
+    if data:
+        released = (data.get("Released") or "").strip()
+        if released and released != "N/A":
+            for fmt in ("%d %b %Y", "%d %B %Y", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(released, fmt).date()
+                except ValueError:
+                    continue
+        year_s = (data.get("Year") or "").strip()
+        y = _parse_ano(year_s)
+        if y:
+            return date(y, 1, 1)
+    y = _parse_ano(ano)
+    if y:
+        return date(y, 1, 1)
+    return None
+
+
+def filme_ainda_nao_lancado(imdb_id: str, titulo: str, ano: str = "") -> bool:
+    """True se o filme ainda não estreou (data de lançamento no futuro)."""
+    hoje = _hoje_brt()
+    ano_n = _parse_ano(ano)
+    if ano_n and ano_n > hoje.year:
+        return True
+    lanc = _data_lancamento(imdb_id, ano)
+    if lanc and lanc > hoje:
+        return True
+    return False
 
 
 def filme_em_cartaz_br(imdb_id: str, titulo: str, ano: str = "") -> bool:
     """True se o filme está em cartaz no Brasil (JustWatch: oferta CINEMA)."""
-    key = imdb_id or f"{titulo}:{ano}"
+    key = f"jw:{imdb_id or titulo}:{ano}"
     now = time.time()
     cached = _CARTAZ_CACHE.get(key)
-    if cached and now - cached[1] < _CARTAZ_CACHE_TTL:
+    if cached and now - cached[1] < _CACHE_TTL:
         return cached[0]
 
     busca = f"{titulo} {ano}".strip() if ano and ano != "N/A" else titulo
@@ -70,6 +149,24 @@ def filme_em_cartaz_br(imdb_id: str, titulo: str, ano: str = "") -> bool:
         return False
 
 
+def filme_excluir_sorteio(imdb_id: str, titulo: str, ano: str = "") -> bool:
+    """
+    True = não pode ser sorteado: em cartaz agora OU estreia ainda no futuro.
+    (Filmes como estreias de 2026 sem oferta CINEMA passavam só pelo JustWatch.)
+    """
+    key = imdb_id or f"{titulo}:{ano}"
+    now = time.time()
+    cached = _EXCLUIR_SORTEIO_CACHE.get(key)
+    if cached and now - cached[1] < _CACHE_TTL:
+        return cached[0]
+
+    excluir = filme_ainda_nao_lancado(imdb_id, titulo, ano) or filme_em_cartaz_br(
+        imdb_id, titulo, ano,
+    )
+    _EXCLUIR_SORTEIO_CACHE[key] = (excluir, now)
+    return excluir
+
+
 def filtrar_fora_cartaz(
     itens: list[T],
     *,
@@ -77,16 +174,16 @@ def filtrar_fora_cartaz(
     get_titulo: Callable[[T], str],
     get_ano: Callable[[T], str] | None = None,
 ) -> tuple[list[T], list[str]]:
-    """Separa itens elegíveis e títulos em cartaz."""
+    """Separa itens elegíveis e títulos excluídos (cartaz ou não lançado)."""
     ano_fn = get_ano or (lambda _: "")
     elegiveis: list[T] = []
-    em_cartaz: list[str] = []
+    excluidos: list[str] = []
     for item in itens:
         ano = ano_fn(item)
         if ano == "N/A":
             ano = ""
-        if filme_em_cartaz_br(get_filme_id(item), get_titulo(item), ano):
-            em_cartaz.append(get_titulo(item))
+        if filme_excluir_sorteio(get_filme_id(item), get_titulo(item), ano):
+            excluidos.append(get_titulo(item))
         else:
             elegiveis.append(item)
-    return elegiveis, em_cartaz
+    return elegiveis, excluidos
