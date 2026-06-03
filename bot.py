@@ -59,6 +59,7 @@ def _resolve_web_url() -> str:
 WEB_URL = _resolve_web_url()
 EVENTO_VOICE_CHANNEL_ID = os.environ.get("EVENTO_VOICE_CHANNEL_ID", "").strip()
 EVENTO_VOICE_CHANNEL_NAME = os.environ.get("EVENTO_VOICE_CHANNEL_NAME", "").strip()
+EVENTO_ANNOUNCE_CHANNEL_ID = os.environ.get("EVENTO_ANNOUNCE_CHANNEL_ID", "").strip()
 EVENTO_NOTIFY_ROLE_ID = 1508308918353526814
 OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "").strip()
 _EVENTO_DURACAO_PADRAO_MIN = 120
@@ -673,6 +674,53 @@ async def _get_evento_notify_role(guild: discord.Guild) -> discord.Role | None:
         return None
 
 
+async def _get_evento_announce_channel(
+    guild: discord.Guild,
+    interaction: discord.Interaction,
+) -> discord.TextChannel | discord.Thread | None:
+    """Canal público do aviso: EVENTO_ANNOUNCE_CHANNEL_ID ou canal do /evento."""
+    if EVENTO_ANNOUNCE_CHANNEL_ID:
+        ch = guild.get_channel(int(EVENTO_ANNOUNCE_CHANNEL_ID))
+        if ch is None:
+            try:
+                ch = await guild.fetch_channel(int(EVENTO_ANNOUNCE_CHANNEL_ID))
+            except (discord.NotFound, discord.HTTPException, ValueError):
+                ch = None
+        if isinstance(ch, (discord.TextChannel, discord.Thread)):
+            return ch
+    ch = interaction.channel
+    if isinstance(ch, (discord.TextChannel, discord.Thread)):
+        return ch
+    return None
+
+
+async def _enviar_aviso_evento_publico(
+    interaction: discord.Interaction,
+    titulo: str,
+    discord_event: discord.ScheduledEvent,
+    role: discord.Role | None,
+) -> None:
+    """Aviso visível no canal com ping na role (não ephemeral)."""
+    if role:
+        texto = f"🎬 **{titulo}** {role.mention}\n{discord_event.url}"
+        mentions = discord.AllowedMentions(roles=[role])
+    else:
+        texto = f"🎬 **{titulo}**\n{discord_event.url}"
+        mentions = discord.AllowedMentions.none()
+
+    canal = await _get_evento_announce_channel(interaction.guild, interaction)
+    me = interaction.guild.me
+    if canal and me and canal.permissions_for(me).send_messages:
+        await canal.send(texto, allowed_mentions=mentions)
+        return
+
+    await interaction.followup.send(
+        texto,
+        allowed_mentions=mentions,
+        ephemeral=False,
+    )
+
+
 def _descricao_evento(
     canal: discord.VoiceChannel,
     duracao_min: int,
@@ -820,14 +868,9 @@ async def _criar_evento_discord(
     )
 
     role = await _get_evento_notify_role(interaction.guild)
-    if role:
-        await interaction.followup.send(
-            f"🎬 **{titulo}** {role.mention}\n{discord_event.url}",
-            allowed_mentions=discord.AllowedMentions(roles=True),
-        )
-    else:
+    if not role:
         print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
-        await interaction.followup.send(f"🎬 **{titulo}**\n{discord_event.url}")
+    await _enviar_aviso_evento_publico(interaction, titulo, discord_event, role)
     return True
 
 
