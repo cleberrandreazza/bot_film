@@ -700,65 +700,62 @@ async def _get_evento_announce_channel(
     return None
 
 
-def _formatar_data_evento_aviso(dt: datetime) -> str:
-    wd = _DIAS_SEMANA_PT[dt.weekday()]
-    return f"{dt.strftime('%d/%m/%Y')} ({wd})"
-
-
 def _texto_aviso_evento(
-    titulo: str,
-    data_txt: str,
-    hora: str,
-    sala_nome: str,
+    event_url: str,
     role: discord.Role | None,
 ) -> tuple[str, discord.AllowedMentions]:
-    corpo = (
-        f"🎬 **{titulo}**\n"
-        f"📅 **Data:** {data_txt}\n"
-        f"🕐 **Hora:** {hora}\n"
-        f"🔊 **Sala:** {sala_nome}"
-    )
+    """Mensagem pública com ping na role e link do evento Discord."""
     if role:
         return (
-            f"<@&{role.id}>\n\n{corpo}",
+            f"Novo evento marcado {role.mention}\n{event_url}",
             discord.AllowedMentions(roles=[role]),
         )
-    return corpo, discord.AllowedMentions.none()
+    return f"Novo evento marcado\n{event_url}", discord.AllowedMentions.none()
+
+
+def _texto_aviso_evento_preview(event_url: str, role: discord.Role | None) -> str:
+    """Prévia sem ping (só o autor vê antes de publicar no canal)."""
+    if role:
+        return f"Novo evento marcado @{role.name}\n{event_url}"
+    return f"Novo evento marcado\n{event_url}"
 
 
 async def _enviar_aviso_evento_publico(
     interaction: discord.Interaction,
-    titulo: str,
-    dt: datetime,
-    hora: str,
-    sala_nome: str,
+    event_url: str,
     role: discord.Role | None,
-) -> bool:
+) -> tuple[bool, str]:
     """
-    Uma mensagem de alerta no canal (título, data, hora, sala) com ping na role.
+    Mostra prévia ephemeral ao autor e publica aviso no canal com menção à role.
     """
     canal = await _get_evento_announce_channel(interaction.guild, interaction)
     me = interaction.guild.me
+    preview = _texto_aviso_evento_preview(event_url, role)
     if not canal:
         print("[Evento] Nenhum canal de texto para aviso público.")
-        return False
+        return False, preview
     if not me:
         print("[Evento] Bot sem membro no servidor.")
-        return False
+        return False, preview
 
     perms = canal.permissions_for(me)
     if not perms.send_messages:
         print(f"[Evento] Sem permissão de enviar em #{canal.name}.")
-        return False
+        return False, preview
     if role and not perms.mention_everyone:
         print(
             f"[Evento] Bot sem 'Mencionar @everyone/cargos' em #{canal.name} — "
             "ping da role pode falhar."
         )
 
-    data_txt = _formatar_data_evento_aviso(dt)
-    texto, mentions = _texto_aviso_evento(titulo, data_txt, hora, sala_nome, role)
+    texto, mentions = _texto_aviso_evento(event_url, role)
     try:
+        await interaction.followup.send(
+            f"📋 **Prévia do aviso** (será publicado em **#{canal.name}**):\n\n"
+            f"```\n{preview}\n```",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
         if role and not role.mentionable:
             print(
                 f"[Evento] Role '{role.name}' não está como mencionável; "
@@ -766,10 +763,10 @@ async def _enviar_aviso_evento_publico(
             )
         await canal.send(content=texto, allowed_mentions=mentions)
         print(f"[Evento] Aviso publicado em #{canal.name} (id {canal.id}).")
-        return True
+        return True, preview
     except discord.HTTPException as e:
         print(f"[Evento] Erro ao publicar aviso em #{canal.name}: {e}")
-        return False
+        return False, preview
 
 
 def _descricao_evento(
@@ -921,8 +918,8 @@ async def _criar_evento_discord(
     role = await _get_evento_notify_role(interaction.guild)
     if not role:
         print(f"[Evento] Role ID {EVENTO_NOTIFY_ROLE_ID} não encontrada — aviso sem menção.")
-    publicado = await _enviar_aviso_evento_publico(
-        interaction, titulo, dt, hora, canal.name, role
+    publicado, _ = await _enviar_aviso_evento_publico(
+        interaction, discord_event.url, role
     )
     if not publicado:
         await interaction.followup.send(
@@ -1059,7 +1056,10 @@ class EventoConfirmarButton(discord.ui.Button):
                 else " (configure `EVENTO_ANNOUNCE_CHANNEL_ID` se não viu o aviso)"
             )
             await interaction.edit_original_response(
-                content=f"✅ Sessão de **{view.titulo}** criada! Aviso com @role enviado{destino}.",
+                content=(
+                    f"✅ Sessão de **{view.titulo}** criada! "
+                    f"Confira a **prévia do aviso** acima e a publicação{destino}."
+                ),
                 view=view,
             )
 
