@@ -128,6 +128,11 @@ if (filaBtn) {
         body: JSON.stringify({ imdb_id: imdbId, titulo: filaBtn.dataset.titulo }),
       });
 
+      if (r.status === 401) {
+        window.location = `/auth/login?next=/filme/${imdbId}`;
+        return;
+      }
+
       if (r.status === 403) {
         filaBtn.textContent = 'Você já assistiu este filme';
         filaBtn.classList.add('fila-btn--disabled');

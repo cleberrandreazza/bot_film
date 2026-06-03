@@ -28,10 +28,13 @@ _TTL = 3600  # 1 hour
 
 
 def _avatar_url(user_id: str, avatar: str | None) -> str:
-    if avatar:
-        return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=64"
-    idx = (int(user_id) >> 22) % 6
-    return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
+    """Avatar Discord; IDs não numéricos (ex.: legado 'anon') usam avatar padrão."""
+    if user_id.isdigit():
+        if avatar:
+            return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=64"
+        idx = (int(user_id) >> 22) % 6
+        return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
+    return "https://cdn.discordapp.com/embed/avatars/0.png"
 
 
 @app.context_processor
@@ -547,21 +550,21 @@ def api_assistido_toggle():
 
 @app.route('/api/fila/adicionar', methods=['POST'])
 def api_fila_adicionar():
+    if 'user_id' not in session:
+        return jsonify({'error': 'not_logged_in'}), 401
     body    = request.json or {}
     imdb_id = body.get('imdb_id')
     titulo  = body.get('titulo', '')
     if not imdb_id:
         return jsonify({'error': 'missing_imdb_id'}), 400
 
-    user_id = session.get('user_id')
+    user_id = session['user_id']
 
-    # Regra: usuário logado que já assistiu não pode adicionar à fila
-    if user_id and convex_db.exists_assistido(imdb_id, user_id):
+    if convex_db.exists_assistido(imdb_id, user_id):
         return jsonify({'error': 'already_watched'}), 403
 
-    profile = _session_profile() if user_id else {}
     res = convex_db.adicionar_fila(
-        user_id or 'anon', imdb_id, titulo, **profile,
+        user_id, imdb_id, titulo, **_session_profile(),
     )
     if res.get('already'):
         return jsonify({'in_fila': True, 'already': True})
@@ -570,6 +573,8 @@ def api_fila_adicionar():
 
 @app.route('/api/fila/remover', methods=['POST'])
 def api_fila_remover():
+    if 'user_id' not in session:
+        return jsonify({'error': 'not_logged_in'}), 401
     body    = request.json or {}
     imdb_id = body.get('imdb_id')
     if not imdb_id:

@@ -76,7 +76,11 @@ export const getAdicionadoPor = query({
     }
 
     const label =
-      display_name || username || `Usuário ${row.user_id.slice(-6)}`;
+      display_name ||
+      username ||
+      (row.user_id === "anon"
+        ? "Adicionado sem login"
+        : `Usuário ${row.user_id.slice(-6)}`);
 
     return {
       user_id: row.user_id,

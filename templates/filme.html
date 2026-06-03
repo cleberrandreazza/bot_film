@@ -171,8 +171,24 @@
       <div class="lbd-sidebar-block">
         <div class="assistido-header">
           <h4 class="lbd-sidebar-title">Fila de Filmes</h4>
+          {% if not current_user %}
+          <a href="/auth/login?next=/filme/{{ filme.imdb_id }}"
+             class="watch-login-btn" title="Entre com Discord para gerenciar a fila">
+            <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png"
+                 alt="Discord" />
+            Login
+          </a>
+          {% endif %}
         </div>
-        {% if current_user and user_watched %}
+        {% if not current_user %}
+        <p class="assistidos-empty">
+          {% if in_fila %}
+          Este filme está na fila do grupo. Entre com Discord para remover.
+          {% else %}
+          Entre com Discord para adicionar à fila.
+          {% endif %}
+        </p>
+        {% elif user_watched %}
         <button class="fila-btn fila-btn--disabled" disabled>Você já assistiu este filme</button>
         {% elif in_fila %}
         <button id="fila-btn" class="fila-btn fila-btn--on"
