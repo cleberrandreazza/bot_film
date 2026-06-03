@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 
 import convex_db
 from synopsis_utils import sinopse_para_filme
-from event_cover_utils import preparar_capa_evento
+from event_cover_utils import preparar_capa_evento, genero_para_evento
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
@@ -680,7 +680,7 @@ def _descricao_evento(
     genero: str,
     sinopse: str,
 ) -> str:
-    partes = ["Sessão coletiva de cinema!"]
+    partes = []
     meta = []
     if ano:
         meta.append(f"**Ano:** {ano}")
@@ -766,7 +766,7 @@ async def _criar_evento_discord(
     else:
         meta = {"ano": "", "genero": "", "sinopse": ""}
     ano_evt = meta["ano"] or ano_imdb
-    genero_evt = meta["genero"]
+    genero_evt = genero_para_evento(filme_id, meta["genero"])
     titulo_omdb = _omdb_valor(omdb_data.get("Title", "")) if omdb_data else ""
     sinopse_evt = sinopse_para_filme(
         titulo, ano_evt, titulo_omdb, meta["sinopse"], filme_id

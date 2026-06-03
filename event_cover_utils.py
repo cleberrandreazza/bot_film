@@ -31,8 +31,33 @@ _COVER_HEIGHT = round(_COVER_WIDTH / _COVER_ASPECT)
 
 _HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 _TMDB_CACHE: dict[str, tuple[str | None, float]] = {}
+_GENEROS_CACHE: dict[str, tuple[str, float]] = {}
 _BYTES_CACHE: dict[str, tuple[bytes | None, float]] = {}
 _CACHE_TTL = 24 * 3600
+
+_OMDB_GENERO_PT = {
+    "Action": "Ação",
+    "Adventure": "Aventura",
+    "Animation": "Animação",
+    "Biography": "Biografia",
+    "Comedy": "Comédia",
+    "Crime": "Policial",
+    "Documentary": "Documentário",
+    "Drama": "Drama",
+    "Family": "Família",
+    "Fantasy": "Fantasia",
+    "History": "História",
+    "Horror": "Terror",
+    "Music": "Música",
+    "Musical": "Musical",
+    "Mystery": "Mistério",
+    "Romance": "Romance",
+    "Sci-Fi": "Ficção científica",
+    "Sport": "Esporte",
+    "Thriller": "Suspense",
+    "War": "Guerra",
+    "Western": "Faroeste",
+}
 
 
 def _cache_get(store: dict, key: str) -> str | bytes | None:
@@ -106,6 +131,50 @@ def _melhor_backdrop_path(imdb_id: str) -> str | None:
 
     _cache_set(_TMDB_CACHE, imdb_id, path or "")
     return path
+
+
+def _traduzir_generos_omdb(generos_en: str) -> str:
+    partes = [p.strip() for p in generos_en.split(",") if p.strip()]
+    return ", ".join(_OMDB_GENERO_PT.get(p, p) for p in partes)
+
+
+def _resolver_media_imdb(imdb_id: str) -> tuple[str, int] | None:
+    data = _tmdb_get(f"/find/{imdb_id}", {"external_source": "imdb_id"})
+    if not data:
+        return None
+    for kind, mtype in (("movie_results", "movie"), ("tv_results", "tv")):
+        results = data.get(kind) or []
+        if results:
+            mid = results[0].get("id")
+            if mid:
+                return mtype, int(mid)
+    return None
+
+
+def genero_para_evento(imdb_id: str, genero_omdb: str = "") -> str:
+    """Gêneros em português: TMDB (pt-BR) ou tradução do texto OMDB."""
+    imdb_id = (imdb_id or "").strip()
+    genero_omdb = (genero_omdb or "").strip()
+    cache_key = f"gen:{imdb_id}"
+    cached = _cache_get(_GENEROS_CACHE, cache_key)
+    if cached is not None:
+        return cached or _traduzir_generos_omdb(genero_omdb)
+
+    resultado = ""
+    if imdb_id and _tmdb_api_key():
+        media = _resolver_media_imdb(imdb_id)
+        if media:
+            mtype, tmdb_id = media
+            data = _tmdb_get(f"/{mtype}/{tmdb_id}", {"language": "pt-BR"})
+            if data:
+                nomes = [g["name"] for g in (data.get("genres") or []) if g.get("name")]
+                resultado = ", ".join(nomes)
+
+    if not resultado and genero_omdb:
+        resultado = _traduzir_generos_omdb(genero_omdb)
+
+    _cache_set(_GENEROS_CACHE, cache_key, resultado)
+    return resultado
 
 
 def _baixar_bytes(url: str) -> bytes | None:
