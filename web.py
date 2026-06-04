@@ -73,63 +73,88 @@ def _json_cinefilo_required():
 
 JW_GRAPHQL = 'https://apis.justwatch.com/graphql'
 JW_QUERY = (
-    '{ popularTitles(country: BR, first: 3,'
+    '{ popularTitles(country: BR, first: 8,'
     ' filter: {searchQuery: "%s", objectTypes: [MOVIE]}) {'
     ' edges { node { __typename ... on Movie {'
-    ' content(country: BR, language: "pt") { title fullPath }'
+    ' content(country: BR, language: "pt") {'
+    ' title fullPath externalIds { imdbId }'
+    ' }'
     ' offers(country: BR, platform: WEB) {'
     ' monetizationType package { clearName icon } deeplinkURL(platform: WEB)'
     ' } } } } } }'
 )
 
 
-def get_streaming(title: str, year: str) -> list:
-    """Busca serviços de streaming no Brasil via JustWatch GraphQL."""
-    key = f'jw:{title}:{year}'
+def _ofertas_streaming_jw(node: dict, jw_filme_url: str) -> list:
+    """Extrai ofertas FLATRATE de um nó Movie do JustWatch."""
+    seen, result = set(), []
+    for o in (node.get('offers') or []):
+        if o.get('monetizationType') != 'FLATRATE':
+            continue
+        pkg = o.get('package', {})
+        name = pkg.get('clearName', '')
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        icon = pkg.get('icon', '')
+        logo = (
+            'https://images.justwatch.com'
+            + icon.replace('{profile}', 's100').replace('{format}', 'webp')
+        )
+        url = (o.get('deeplinkURL') or '').strip() or jw_filme_url
+        result.append({'nome': name, 'logo': logo, 'url': url})
+    return result
+
+
+def _justwatch_busca_url(title: str, year: str) -> str:
+    q = f'{title} {year}'.strip() if year and year != 'N/A' else title
+    return f'https://www.justwatch.com/br/busca?q={urllib.parse.quote(q)}'
+
+
+def get_streaming(title: str, year: str, imdb_id: str = '') -> tuple[list, str]:
+    """Busca streaming no Brasil via JustWatch, casando pelo IMDb do filme."""
+    key = f'jw:{imdb_id}:{title}:{year}'
     now = time.time()
+    fallback_url = _justwatch_busca_url(title, year)
     if key in _cache and now - _cache[key][1] < _TTL:
-        return _cache[key][0]
+        cached = _cache[key][0]
+        return cached[0], cached[1] or fallback_url
     try:
-        safe_title = title.replace('"', '\\"')
+        busca = f'{title} {year}'.strip() if year and year != 'N/A' else title
+        safe = busca.replace('"', '\\"')
         r = requests.post(
             JW_GRAPHQL,
-            json={'query': JW_QUERY % safe_title},
+            json={'query': JW_QUERY % safe},
             headers={'User-Agent': 'JustWatch/4.0 (Android)', 'Content-Type': 'application/json'},
             timeout=8,
         )
         if not r.ok:
-            return []
+            return [], fallback_url
         edges = (r.json().get('data') or {}).get('popularTitles', {}).get('edges', [])
         for edge in edges:
             node = edge.get('node', {})
             if node.get('__typename') != 'Movie':
                 continue
             content = node.get('content', {})
-            seen, result = set(), []
-            for o in (node.get('offers') or []):
-                if o.get('monetizationType') != 'FLATRATE':
-                    continue
-                pkg  = o.get('package', {})
-                name = pkg.get('clearName', '')
-                if name in seen:
-                    continue
-                seen.add(name)
-                icon = pkg.get('icon', '')
-                logo = ('https://images.justwatch.com' +
-                        icon.replace('{profile}', 's100').replace('{format}', 'webp'))
-                result.append({
-                    'nome': name,
-                    'logo': logo,
-                    'url':  o.get('deeplinkURL', ''),
-                })
+            node_imdb = (content.get('externalIds') or {}).get('imdbId', '')
+            if imdb_id and node_imdb and node_imdb != imdb_id:
+                continue
+            full_path = (content.get('fullPath') or '').strip()
+            jw_filme_url = (
+                f'https://www.justwatch.com{full_path}'
+                if full_path.startswith('/')
+                else fallback_url
+            )
+            result = _ofertas_streaming_jw(node, jw_filme_url)
             if result:
-                _cache[key] = (result, now)
-                return result
+                _cache[key] = ((result, jw_filme_url), now)
+                return result, jw_filme_url
+            if imdb_id and node_imdb == imdb_id:
+                break
     except Exception as e:
         print(f'JustWatch error: {e}')
-    empty: list = []
-    _cache[key] = (empty, now)
-    return empty
+    _cache[key] = (([], fallback_url), now)
+    return [], fallback_url
 
 
 def get_pt_synopsis(
@@ -254,7 +279,9 @@ def get_movie(imdb_id: str):
         return None
     movie = _parse_movie(imdb_id, data)
     if movie:
-        movie['streaming']  = get_streaming(movie['titulo'], movie['ano'])
+        streaming, jw_url = get_streaming(movie['titulo'], movie['ano'], imdb_id)
+        movie['streaming'] = streaming
+        movie['justwatch_url'] = jw_url
         omdb_title = (data.get('Title') or '').strip()
         if omdb_title.upper() == 'N/A':
             omdb_title = ''
@@ -670,8 +697,12 @@ def filme_page(imdb_id):
             'imdb_id': imdb_id, 'titulo': titulo, 'poster': '',
             'ano': '', 'nota': '', 'sinopse': '', 'duracao': None,
             'diretor': '', 'generos': [], 'elenco': [], 'rated': '',
-            'pais': '', 'ratings': {}, 'streaming': [], 'trailer_id': '',
+            'pais': '', 'ratings': {}, 'streaming': [], 'justwatch_url': '',
+            'trailer_id': '',
         }
+        st, jw = get_streaming(titulo, '', imdb_id)
+        info['streaming'] = st
+        info['justwatch_url'] = jw
     user_watched = False
     in_fila      = False
     if 'user_id' in session:

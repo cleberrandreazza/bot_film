@@ -150,7 +150,7 @@
             {% endfor %}
           </ul>
           <a class="lbd-watch-footer"
-             href="https://www.justwatch.com/br/busca?q={{ filme.titulo | urlencode }}"
+             href="{{ filme.justwatch_url or ('https://www.justwatch.com/br/busca?q=' ~ (filme.titulo | urlencode)) }}"
              target="_blank" rel="noopener">
             Todos os serviços&hellip; &nbsp;<strong>JustWatch</strong>
           </a>
@@ -158,7 +158,7 @@
           <div class="lbd-watch-empty">
             <p>Não encontrado em streaming no Brasil agora.</p>
             <a class="lbd-watch-footer lbd-watch-footer--btn"
-               href="https://www.justwatch.com/br/busca?q={{ filme.titulo | urlencode }}"
+               href="{{ filme.justwatch_url or ('https://www.justwatch.com/br/busca?q=' ~ (filme.titulo | urlencode)) }}"
                target="_blank" rel="noopener">
               Buscar no JustWatch &#8599;
             </a>
