@@ -34,13 +34,8 @@ _TTL = 3600  # 1 hour
 
 
 def _avatar_url(user_id: str, avatar: str | None) -> str:
-    """Avatar Discord; IDs não numéricos (ex.: legado 'anon') usam avatar padrão."""
-    if user_id.isdigit():
-        if avatar:
-            return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.png?size=64"
-        idx = (int(user_id) >> 22) % 6
-        return f"https://cdn.discordapp.com/embed/avatars/{idx}.png"
-    return "https://cdn.discordapp.com/embed/avatars/0.png"
+    from discord_profiles import avatar_cdn_url
+    return avatar_cdn_url(user_id, avatar)
 
 
 @app.context_processor
@@ -485,20 +480,26 @@ def auth_logout():
 
 @app.route('/api/assistidos/<imdb_id>')
 def api_assistidos(imdb_id):
-    from discord_profiles import buscar_perfil_usuario
+    from discord_profiles import avatar_cdn_url, buscar_perfil_usuario
 
     rows = _get_assistidos(imdb_id)
     for r in rows:
-        if not r.get('avatar') and str(r.get('user_id', '')).isdigit():
-            api = buscar_perfil_usuario(str(r['user_id']))
+        uid = str(r.get('user_id', ''))
+        if uid.isdigit() and not r.get('avatar'):
+            api = buscar_perfil_usuario(uid)
             if api:
-                if api.get('avatar'):
-                    r['avatar'] = api['avatar']
-                if api.get('username'):
-                    r['username'] = api['username']
-                if api.get('display_name'):
-                    r['display_name'] = api['display_name']
-        r['avatar_url'] = _avatar_url(r['user_id'], r.get('avatar'))
+                r['avatar'] = api.get('avatar') or r.get('avatar')
+                r['username'] = api.get('username') or r.get('username')
+                r['display_name'] = api.get('display_name') or r.get('display_name')
+                try:
+                    convex_db.upsert_assistido(
+                        imdb_id, uid,
+                        r.get('username'), r.get('display_name'),
+                        r.get('avatar'), r.get('source', 'evento'),
+                    )
+                except Exception:
+                    pass
+        r['avatar_url'] = avatar_cdn_url(uid, r.get('avatar'))
         r['display_name'] = r.get('display_name') or r.get('username') or ''
     return jsonify(rows)
 

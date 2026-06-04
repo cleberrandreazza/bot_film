@@ -8,7 +8,7 @@ import requests
 _DISCORD_API = "https://discord.com/api/v10"
 _CACHE: dict[str, tuple[bool, float]] = {}
 _CACHE_TTL = 600
-_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; CineBotecao/1.0)"}
+_HTTP_HEADERS = {"User-Agent": "DiscordBot (https://github.com/cleberrandreazza/bot_film, 1.0)"}
 
 
 def _bot_token() -> str:

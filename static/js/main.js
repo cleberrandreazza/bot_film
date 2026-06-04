@@ -45,13 +45,18 @@ function loadAssistidos() {
         assistidosList.innerHTML = '<span class="assistidos-empty">Nenhum registro ainda.</span>';
         return;
       }
-      assistidosList.innerHTML = rows.map(u => `
+      const fallbackAvatar = (uid) =>
+        `https://cdn.discordapp.com/embed/avatars/${(BigInt(uid) >> 22n) % 6n}.png`;
+      assistidosList.innerHTML = rows.map(u => {
+        const av = u.avatar_url || fallbackAvatar(u.user_id);
+        return `
         <div class="assistido-item" title="${u.display_name || u.username}">
-          <img src="${u.avatar_url}" alt="${u.username}" />
+          <img src="${av}" alt="${u.username}" loading="lazy"
+               onerror="this.onerror=null;this.src='${fallbackAvatar(u.user_id)}'" />
           <span>${u.display_name || u.username}</span>
           <span class="assistido-source assistido-source--${u.source}">${u.source === 'evento' ? '📅' : '✓'}</span>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     })
     .catch(() => { assistidosList.innerHTML = ''; });
 }

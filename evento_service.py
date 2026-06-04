@@ -13,7 +13,7 @@ from synopsis_utils import sinopse_para_filme
 
 BRT = timezone(timedelta(hours=-3))
 _DISCORD_API = "https://discord.com/api/v10"
-_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; CineBotecao/1.0)"}
+_HTTP_HEADERS = {"User-Agent": "DiscordBot (https://github.com/cleberrandreazza/bot_film, 1.0)"}
 
 _DIAS_SEMANA_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
 _HORAS_EVENTO = (
