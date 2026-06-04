@@ -238,6 +238,18 @@ def set_evento_status(discord_event_id: str, status: str) -> bool:
     })
 
 
+def list_eventos_by_status(status: str) -> list[dict]:
+    return _q("eventos:listByStatus", {"status": status}) or []
+
+
+def list_eventos_by_filme(filme_id: str) -> list[dict]:
+    return _q("eventos:listByFilme", {"filme_id": filme_id}) or []
+
+
+def get_by_filme(filme_id: str) -> dict | None:
+    return _q("listas:getByFilme", {"filme_id": filme_id})
+
+
 # ───────────────────────────── participantes ──
 
 def upsert_participante(discord_event_id: str, user_id: str, username: str, **flags) -> str:

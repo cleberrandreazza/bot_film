@@ -109,6 +109,26 @@ export const listAtivos = query({
   },
 });
 
+export const listByStatus = query({
+  args: { status: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("eventos")
+      .withIndex("by_status", (q) => q.eq("status", args.status))
+      .collect();
+  },
+});
+
+export const listByFilme = query({
+  args: { filme_id: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("eventos").collect();
+    return rows
+      .filter((r) => r.filme_id === args.filme_id)
+      .sort((a, b) => b._creationTime - a._creationTime);
+  },
+});
+
 export const setStatusByDiscordEvent = mutation({
   args: { discord_event_id: v.string(), status: v.string() },
   handler: async (ctx, args) => {
