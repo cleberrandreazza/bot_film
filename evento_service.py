@@ -237,6 +237,8 @@ def _discord_headers() -> dict:
 
 def listar_usuarios_evento_discord(guild_id: str, event_id: str) -> list[dict]:
     """Usuários que marcaram Interessado no evento (API do Discord)."""
+    from discord_profiles import perfil_from_api
+
     if not _bot_token() or not guild_id or not event_id:
         return []
     url = f"{_DISCORD_API}/guilds/{guild_id}/scheduled-events/{event_id}/users"
@@ -244,7 +246,7 @@ def listar_usuarios_evento_discord(guild_id: str, event_id: str) -> list[dict]:
     before: str | None = None
     try:
         while True:
-            params: dict = {"limit": 100}
+            params: dict = {"limit": 100, "with_member": "true"}
             if before:
                 params["before"] = before
             r = requests.get(
@@ -261,12 +263,7 @@ def listar_usuarios_evento_discord(guild_id: str, event_id: str) -> list[dict]:
                 uid = str(user.get("id", "")).strip()
                 if not uid:
                     continue
-                nome = (
-                    user.get("global_name")
-                    or user.get("username")
-                    or ""
-                )
-                out.append({"user_id": uid, "username": nome})
+                out.append(perfil_from_api(user, entry.get("member")))
             if len(batch) < 100:
                 break
             last = batch[-1].get("user") or {}

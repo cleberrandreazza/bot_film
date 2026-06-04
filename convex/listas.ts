@@ -75,12 +75,21 @@ export const getAdicionadoPor = query({
       }
     }
 
+    // user_id anon: username pode ter sido sobrescrito por sync de evento — não exibir.
+    if (row.user_id === "anon") {
+      return {
+        user_id: row.user_id,
+        username: "",
+        display_name: "Adicionado sem login",
+        avatar: null,
+        na_fila: row.status === "watchlist",
+      };
+    }
+
     const label =
       display_name ||
       username ||
-      (row.user_id === "anon"
-        ? "Adicionado sem login"
-        : `Usuário ${row.user_id.slice(-6)}`);
+      `Usuário ${row.user_id.slice(-6)}`;
 
     return {
       user_id: row.user_id,
@@ -247,6 +256,44 @@ export const setStatus = mutation({
   },
 });
 
+/** Remove username/display colados por sync antigo em entradas anon. */
+export const limparPerfilAnon = mutation({
+  args: { filme_id: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("listas")
+      .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
+      .first();
+    if (!row || row.user_id !== "anon") return false;
+    await ctx.db.patch(row._id, {
+      username: undefined,
+      display_name: undefined,
+      avatar: undefined,
+    });
+    return true;
+  },
+});
+
+/** Apenas status assistido na lista — não mexe em quem adicionou. */
+export const setFilmeAssistido = mutation({
+  args: { filme_id: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("listas")
+      .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
+      .first();
+    const assistidoEm = nowStr();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        status: "assistido",
+        assistido_em: assistidoEm,
+      });
+      return { updated: true };
+    }
+    return { updated: false };
+  },
+});
+
 // Update-or-insert do status (usado por /visto e toggle do site).
 export const marcarAssistido = mutation({
   args: {
@@ -272,9 +319,12 @@ export const marcarAssistido = mutation({
         display_name?: string;
         avatar?: string | null;
       } = { status: "assistido", assistido_em: assistidoEm };
-      if (args.username) patch.username = args.username;
-      if (args.display_name) patch.display_name = args.display_name;
-      if (args.avatar !== undefined) patch.avatar = args.avatar;
+      // Sessão de evento: não altera quem adicionou à lista.
+      if (args.source !== "evento") {
+        if (args.username) patch.username = args.username;
+        if (args.display_name) patch.display_name = args.display_name;
+        if (args.avatar !== undefined) patch.avatar = args.avatar;
+      }
       await ctx.db.patch(existing._id, patch);
     } else {
       await ctx.db.insert("listas", {

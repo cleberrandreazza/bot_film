@@ -23,7 +23,7 @@ export const add = mutation({
         q.eq("filme_id", args.filme_id).eq("user_id", args.user_id),
       )
       .first();
-    if (existing) return { inserted: false };
+    if (existing) return { inserted: false, updated: false };
     await ctx.db.insert("usuarios_assistidos", {
       filme_id: args.filme_id,
       user_id: args.user_id,
@@ -33,7 +33,54 @@ export const add = mutation({
       source: args.source,
       data_assistido: nowStr(),
     });
-    return { inserted: true };
+    return { inserted: true, updated: false };
+  },
+});
+
+/** Atualiza perfil ou insere registro de quem assistiu. */
+export const upsert = mutation({
+  args: {
+    filme_id: v.string(),
+    user_id: v.string(),
+    username: v.optional(v.string()),
+    display_name: v.optional(v.string()),
+    avatar: v.optional(v.string()),
+    source: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("usuarios_assistidos")
+      .withIndex("by_filme_and_user", (q) =>
+        q.eq("filme_id", args.filme_id).eq("user_id", args.user_id),
+      )
+      .first();
+    const data = {
+      username: args.username,
+      display_name: args.display_name,
+      avatar: args.avatar,
+      source: args.source,
+    };
+    if (existing) {
+      const patch: Record<string, unknown> = {};
+      if (args.username) patch.username = args.username;
+      if (args.display_name) patch.display_name = args.display_name;
+      if (args.avatar) patch.avatar = args.avatar;
+      if (Object.keys(patch).length) {
+        await ctx.db.patch(existing._id, patch);
+        return { inserted: false, updated: true };
+      }
+      return { inserted: false, updated: false };
+    }
+    await ctx.db.insert("usuarios_assistidos", {
+      filme_id: args.filme_id,
+      user_id: args.user_id,
+      username: args.username,
+      display_name: args.display_name,
+      avatar: args.avatar,
+      source: args.source,
+      data_assistido: nowStr(),
+    });
+    return { inserted: true, updated: false };
   },
 });
 

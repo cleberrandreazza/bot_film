@@ -292,6 +292,27 @@ def add_assistido(filme_id: str, user_id: str, username: str | None,
     }))
 
 
+def upsert_assistido(filme_id: str, user_id: str, username: str | None,
+                     display_name: str | None, avatar: str | None,
+                     source: str = "evento") -> dict:
+    return _m("assistidos:upsert", _clean({
+        "filme_id": filme_id,
+        "user_id": str(user_id),
+        "username": username,
+        "display_name": display_name,
+        "avatar": avatar,
+        "source": source,
+    }))
+
+
+def set_filme_assistido(filme_id: str) -> dict:
+    return _m("listas:setFilmeAssistido", {"filme_id": filme_id})
+
+
+def limpar_perfil_anon(filme_id: str) -> bool:
+    return bool(_m("listas:limparPerfilAnon", {"filme_id": filme_id}))
+
+
 def exists_assistido(filme_id: str, user_id: str) -> bool:
     return bool(_q("assistidos:existsByFilmeUser", {
         "filme_id": filme_id, "user_id": str(user_id),

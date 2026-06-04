@@ -403,6 +403,11 @@ def _get_adicionado_por(imdb_id: str) -> dict | None:
         return None
     if not row:
         return None
+    if row.get('user_id') != 'anon' and not row.get('avatar'):
+        from discord_profiles import buscar_perfil_usuario
+        api = buscar_perfil_usuario(str(row['user_id']))
+        if api and api.get('avatar'):
+            row['avatar'] = api['avatar']
     row['avatar_url'] = _avatar_url(row['user_id'], row.get('avatar'))
     return row
 
@@ -480,9 +485,21 @@ def auth_logout():
 
 @app.route('/api/assistidos/<imdb_id>')
 def api_assistidos(imdb_id):
+    from discord_profiles import buscar_perfil_usuario
+
     rows = _get_assistidos(imdb_id)
     for r in rows:
-        r['avatar_url'] = _avatar_url(r['user_id'], r['avatar'])
+        if not r.get('avatar') and str(r.get('user_id', '')).isdigit():
+            api = buscar_perfil_usuario(str(r['user_id']))
+            if api:
+                if api.get('avatar'):
+                    r['avatar'] = api['avatar']
+                if api.get('username'):
+                    r['username'] = api['username']
+                if api.get('display_name'):
+                    r['display_name'] = api['display_name']
+        r['avatar_url'] = _avatar_url(r['user_id'], r.get('avatar'))
+        r['display_name'] = r.get('display_name') or r.get('username') or ''
     return jsonify(rows)
 
 
