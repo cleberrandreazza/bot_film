@@ -105,12 +105,14 @@ def marcar_assistido(
     username: str | None = None,
     display_name: str | None = None,
     avatar: str | None = None,
+    source: str | None = None,
 ) -> dict:
     return _m("listas:marcarAssistido", _clean({
         "user_id": user_id, "filme_id": filme_id, "titulo": titulo,
         "username": username,
         "display_name": display_name,
         "avatar": avatar,
+        "source": source,
     }))
 
 
@@ -253,6 +255,12 @@ def upsert_participante(discord_event_id: str, user_id: str, username: str, **fl
 
 def list_entrou(discord_event_id: str) -> list[dict]:
     return _q("participantes:listEntrouByEvento", {
+        "discord_event_id": str(discord_event_id),
+    }) or []
+
+
+def list_participantes_evento(discord_event_id: str) -> list[dict]:
+    return _q("participantes:listParticipantesByEvento", {
         "discord_event_id": str(discord_event_id),
     }) or []
 

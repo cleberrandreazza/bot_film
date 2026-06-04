@@ -51,3 +51,25 @@ export const listEntrouByEvento = query({
       .map((r) => ({ user_id: r.user_id, username: r.username ?? "" }));
   },
 });
+
+/** Interessado no evento e/ou entrou no canal de voz. */
+export const listParticipantesByEvento = query({
+  args: { discord_event_id: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("evento_participantes")
+      .withIndex("by_evento", (q) =>
+        q.eq("discord_event_id", args.discord_event_id),
+      )
+      .collect();
+    const seen = new Set<string>();
+    const out: { user_id: string; username: string }[] = [];
+    for (const r of rows) {
+      if (r.entrou_canal !== 1 && r.interessado !== 1) continue;
+      if (seen.has(r.user_id)) continue;
+      seen.add(r.user_id);
+      out.push({ user_id: r.user_id, username: r.username ?? "" });
+    }
+    return out;
+  },
+});

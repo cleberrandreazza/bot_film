@@ -256,30 +256,62 @@ export const marcarAssistido = mutation({
     username: v.optional(v.string()),
     display_name: v.optional(v.string()),
     avatar: v.optional(v.string()),
+    source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("listas")
       .withIndex("by_filme", (q) => q.eq("filme_id", args.filme_id))
       .first();
+    const assistidoEm = nowStr();
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      const patch: {
+        status: string;
+        assistido_em: string;
+        username?: string;
+        display_name?: string;
+        avatar?: string | null;
+      } = { status: "assistido", assistido_em: assistidoEm };
+      if (args.username) patch.username = args.username;
+      if (args.display_name) patch.display_name = args.display_name;
+      if (args.avatar !== undefined) patch.avatar = args.avatar;
+      await ctx.db.patch(existing._id, patch);
+    } else {
+      await ctx.db.insert("listas", {
+        user_id: args.user_id,
+        filme_id: args.filme_id,
+        titulo: args.titulo,
         status: "assistido",
-        assistido_em: nowStr(),
+        assistido_em: assistidoEm,
+        username: args.username,
+        display_name: args.display_name,
+        avatar: args.avatar,
       });
-      return { inserted: false };
     }
-    await ctx.db.insert("listas", {
-      user_id: args.user_id,
-      filme_id: args.filme_id,
-      titulo: args.titulo,
-      status: "assistido",
-      assistido_em: nowStr(),
-      username: args.username,
-      display_name: args.display_name,
-      avatar: args.avatar,
-    });
-    return { inserted: true };
+
+    // Registra quem assistiu (tabela usuarios_assistidos).
+    const uid = args.user_id;
+    if (uid && uid !== "evento") {
+      const jaAssistiu = await ctx.db
+        .query("usuarios_assistidos")
+        .withIndex("by_filme_and_user", (q) =>
+          q.eq("filme_id", args.filme_id).eq("user_id", uid),
+        )
+        .first();
+      if (!jaAssistiu) {
+        await ctx.db.insert("usuarios_assistidos", {
+          filme_id: args.filme_id,
+          user_id: uid,
+          username: args.username,
+          display_name: args.display_name,
+          avatar: args.avatar,
+          source: args.source ?? "manual",
+          data_assistido: assistidoEm,
+        });
+      }
+    }
+
+    return { inserted: !existing };
   },
 });
 

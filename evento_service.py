@@ -235,6 +235,49 @@ def _discord_headers() -> dict:
     }
 
 
+def listar_usuarios_evento_discord(guild_id: str, event_id: str) -> list[dict]:
+    """Usuários que marcaram Interessado no evento (API do Discord)."""
+    if not _bot_token() or not guild_id or not event_id:
+        return []
+    url = f"{_DISCORD_API}/guilds/{guild_id}/scheduled-events/{event_id}/users"
+    out: list[dict] = []
+    before: str | None = None
+    try:
+        while True:
+            params: dict = {"limit": 100}
+            if before:
+                params["before"] = before
+            r = requests.get(
+                url, headers=_discord_headers(), params=params, timeout=15,
+            )
+            if not r.ok:
+                print(f"[Evento] Lista de inscritos HTTP {r.status_code}: {r.text[:200]}")
+                break
+            batch = r.json()
+            if not isinstance(batch, list) or not batch:
+                break
+            for entry in batch:
+                user = entry.get("user") or {}
+                uid = str(user.get("id", "")).strip()
+                if not uid:
+                    continue
+                nome = (
+                    user.get("global_name")
+                    or user.get("username")
+                    or ""
+                )
+                out.append({"user_id": uid, "username": nome})
+            if len(batch) < 100:
+                break
+            last = batch[-1].get("user") or {}
+            before = str(last.get("id", "")) or None
+            if not before:
+                break
+    except Exception as e:
+        print(f"[Evento] Erro ao listar inscritos: {e}")
+    return out
+
+
 def _nome_canal_voz() -> tuple[str | None, str | None]:
     """Retorna (channel_id, nome) ou (None, mensagem_erro)."""
     cid = _voice_channel_id()

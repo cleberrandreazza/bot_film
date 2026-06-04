@@ -14,7 +14,7 @@ import convex_db
 from sorteio_utils import sortear_fila_bot
 from synopsis_utils import sinopse_para_filme
 from event_cover_utils import preparar_capa_evento, genero_para_evento
-from evento_service import criar_evento_agendado
+from evento_service import criar_evento_agendado, listar_usuarios_evento_discord
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
 def _env_to_bool(name: str, default: bool = False) -> bool:
@@ -310,7 +310,16 @@ async def _visto(send, author, nome_do_filme):
 
     if resultado:
         filme_id, titulo = resultado["filme_id"], resultado["titulo"]
-        await asyncio.to_thread(convex_db.set_status, filme_id, "assistido")
+        await asyncio.to_thread(
+            convex_db.add_assistido,
+            filme_id, user_id,
+            profile.get("username"), profile.get("display_name"),
+            profile.get("avatar"), "discord",
+        )
+        await asyncio.to_thread(
+            convex_db.marcar_assistido,
+            user_id, filme_id, titulo, **profile,
+        )
         await send(f"✅ **{titulo}** foi movido para os **Assistidos** do grupo!")
     else:
         await send(f"🔍 Não achei **{nome_do_filme}** na fila. Buscando no IMDb para marcar direto...")
@@ -996,6 +1005,47 @@ async def _get_evento_by_discord_id(discord_event_id: str):
     return await asyncio.to_thread(convex_db.get_evento_by_discord, str(discord_event_id))
 
 
+async def _snapshot_canal_evento(guild: discord.Guild, row: dict, discord_event_id: str):
+    """Marca quem está no canal de voz do evento (inclui quem já estava lá)."""
+    canal_id = row.get("canal_id")
+    if not canal_id:
+        return
+    ch = guild.get_channel(int(canal_id))
+    if not isinstance(ch, (discord.VoiceChannel, discord.StageChannel)):
+        return
+    for member in ch.members:
+        if member.bot:
+            continue
+        nome = member.display_name or member.name
+        await _upsert_participante(discord_event_id, str(member.id), nome, entrou_canal=1)
+
+
+async def _coletar_participantes_evento(
+    guild: discord.Guild, row: dict, discord_event_id: str,
+) -> list[dict]:
+    await _snapshot_canal_evento(guild, row, discord_event_id)
+
+    participantes = await asyncio.to_thread(
+        convex_db.list_participantes_evento, discord_event_id,
+    )
+    by_id = {p["user_id"]: p for p in participantes}
+
+    guild_id = str(row.get("guild_id") or guild.id)
+    api_users = await asyncio.to_thread(
+        listar_usuarios_evento_discord, guild_id, discord_event_id,
+    )
+    for u in api_users:
+        uid = u["user_id"]
+        if uid in by_id:
+            continue
+        by_id[uid] = u
+        await _upsert_participante(
+            discord_event_id, uid, u.get("username", ""), interessado=1,
+        )
+
+    return list(by_id.values())
+
+
 @bot.event
 async def on_scheduled_event_user_add(event: discord.ScheduledEvent, user: discord.User):
     """Usuário marcou Interessado no evento."""
@@ -1036,50 +1086,78 @@ async def on_scheduled_event_update(
     before: discord.ScheduledEvent,
     after: discord.ScheduledEvent,
 ):
-    """Quando o evento termina, registra quem assistiu."""
-    if after.status != discord.EventStatus.completed:
-        return
+    """Quando o evento inicia ou termina, sincroniza participantes e assistidos."""
     row = await _get_evento_by_discord_id(after.id)
     if not row:
         return
-    filme_id, titulo = row["filme_id"], row["titulo"]
 
-    # Quem entrou no canal durante o evento
-    participantes = await asyncio.to_thread(convex_db.list_entrou, str(after.id))
+    event_id = str(after.id)
+
+    if (
+        after.status == discord.EventStatus.active
+        and before.status != discord.EventStatus.active
+    ):
+        await _snapshot_canal_evento(after.guild, row, event_id)
+        await asyncio.to_thread(convex_db.set_evento_status, event_id, "ativo")
+        return
+
+    if after.status != discord.EventStatus.completed:
+        return
+
+    filme_id, titulo = row["filme_id"], row["titulo"]
+    participantes = await _coletar_participantes_evento(after.guild, row, event_id)
 
     for p in participantes:
-        user_id, username = p["user_id"], p["username"]
-        # Tenta buscar avatar via guild member
+        user_id = p["user_id"]
+        username = p.get("username") or ""
+        display = username
         avatar = None
         try:
             member = after.guild.get_member(int(user_id))
-            if member and member.avatar:
-                avatar = member.avatar.key
+            if member:
+                display = member.display_name or member.global_name or member.name
+                username = member.name
+                if member.avatar:
+                    avatar = member.avatar.key
         except Exception:
             pass
 
         await asyncio.to_thread(
             convex_db.add_assistido,
-            filme_id, user_id, username, username, avatar, "evento",
+            filme_id, user_id, username, display, avatar, "evento",
         )
 
-    # Sincroniza listas: marca o filme como assistido
-    await asyncio.to_thread(convex_db.marcar_assistido, "evento", filme_id, titulo)
+    if participantes:
+        p0 = participantes[0]
+        await asyncio.to_thread(
+            convex_db.marcar_assistido,
+            p0["user_id"], filme_id, titulo,
+            username=p0.get("username"),
+            display_name=p0.get("username"),
+            source="evento",
+        )
+    else:
+        await asyncio.to_thread(convex_db.set_status, filme_id, "assistido")
 
-    # Encerra o evento
-    await asyncio.to_thread(convex_db.set_evento_status, str(after.id), "encerrado")
+    await asyncio.to_thread(convex_db.set_evento_status, event_id, "encerrado")
 
-    # Notifica no canal de texto padrão
     channel = after.guild.system_channel or next(
         (c for c in after.guild.text_channels if c.permissions_for(after.guild.me).send_messages),
         None
     )
-    if channel and participantes:
-        nomes = ', '.join(f'<@{p["user_id"]}>' for p in participantes)
-        await channel.send(
-            f"✅ Sessão de **{titulo}** encerrada! "
-            f"Registrado como assistido para: {nomes}"
-        )
+    if channel:
+        if participantes:
+            nomes = ", ".join(f"<@{p['user_id']}>" for p in participantes)
+            await channel.send(
+                f"✅ Sessão de **{titulo}** encerrada! "
+                f"Registrado como assistido para: {nomes}"
+            )
+        else:
+            await channel.send(
+                f"✅ Sessão de **{titulo}** encerrada! "
+                f"Ninguém foi registrado como participante "
+                f"(marque **Interessado** ou entre no canal de voz durante a sessão)."
+            )
 
 
 # ---- EXECUÇÃO DO BOT ----

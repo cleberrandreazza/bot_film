@@ -520,7 +520,7 @@ def api_assistido_toggle():
         )
         # Sincroniza com listas (aparece em "Já Vistos" na home)
         convex_db.marcar_assistido(
-            user_id, imdb_id, titulo, **_session_profile(),
+            user_id, imdb_id, titulo, source='manual', **_session_profile(),
         )
         watched = True
 
