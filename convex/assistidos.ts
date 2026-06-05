@@ -61,6 +61,7 @@ export const upsert = mutation({
       source: args.source,
     };
     if (existing) {
+      // Registro já existe: preserva data_assistido e source (ex.: manual antes do evento).
       const patch: Record<string, unknown> = {};
       if (args.username) patch.username = args.username;
       if (args.display_name) patch.display_name = args.display_name;

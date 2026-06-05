@@ -526,7 +526,7 @@ def api_assistidos(imdb_id):
                     convex_db.upsert_assistido(
                         imdb_id, uid,
                         r.get('username'), r.get('display_name'),
-                        r.get('avatar'), r.get('source', 'evento'),
+                        r.get('avatar'), r.get('source') or 'manual',
                     )
                 except Exception:
                     pass

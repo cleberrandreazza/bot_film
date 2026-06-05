@@ -128,11 +128,18 @@ async def registrar_assistidos_do_evento(
     for p in participantes:
         user_id = p["user_id"]
         username, display, avatar = _resolver_perfil(guild, user_id, p)
-        res = await asyncio.to_thread(
-            convex_db.upsert_assistido,
-            filme_id, user_id, username, display, avatar, "evento",
-        )
-        if res.get("inserted") or res.get("updated"):
+        ja = await asyncio.to_thread(convex_db.exists_assistido, filme_id, user_id)
+        if ja:
+            # Já marcou antes (ex.: manual): só atualiza perfil, mantém data e source.
+            await asyncio.to_thread(
+                convex_db.upsert_assistido,
+                filme_id, user_id, username, display, avatar, "evento",
+            )
+        else:
+            res = await asyncio.to_thread(
+                convex_db.add_assistido,
+                filme_id, user_id, username, display, avatar, "evento",
+            )
             if res.get("inserted"):
                 inseridos += 1
 
@@ -250,17 +257,19 @@ def recuperar_filme_por_id(filme_id: str) -> dict:
     for p in participantes:
         uid = p["user_id"]
         api = buscar_perfil_usuario(uid) or p
-        res = convex_db.upsert_assistido(
-            filme_id, uid,
-            api.get("username") or p.get("username"),
-            api.get("display_name") or api.get("username") or p.get("username"),
-            api.get("avatar"),
-            "evento",
-        )
-        if res.get("inserted"):
-            inseridos += 1
-        elif res.get("updated"):
-            pass
+        username = api.get("username") or p.get("username")
+        display = api.get("display_name") or api.get("username") or p.get("username")
+        avatar = api.get("avatar")
+        if convex_db.exists_assistido(filme_id, uid):
+            convex_db.upsert_assistido(
+                filme_id, uid, username, display, avatar, "evento",
+            )
+        else:
+            res = convex_db.add_assistido(
+                filme_id, uid, username, display, avatar, "evento",
+            )
+            if res.get("inserted"):
+                inseridos += 1
 
     convex_db.set_filme_assistido(filme_id)
     try:
