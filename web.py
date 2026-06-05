@@ -4,6 +4,7 @@ import requests
 import re
 import os
 import time
+import urllib.parse
 from datetime import datetime, timezone, timedelta
 
 import convex_db

@@ -64,6 +64,7 @@ async def coletar_participantes(
     *,
     snapshot_canal: bool = True,
     filme_id: str | None = None,
+    incluir_api_discord: bool = True,
 ) -> list[dict]:
     """Interessados + voz + inscritos (evento atual e demais do mesmo filme)."""
     if snapshot_canal and guild:
@@ -99,7 +100,7 @@ async def coletar_participantes(
             if e.get("discord_event_id")
         }) or eventos_api
 
-    if guild_id:
+    if incluir_api_discord and guild_id:
         for eid in eventos_api:
             api_users = await asyncio.to_thread(
                 listar_usuarios_evento_discord, guild_id, eid,
@@ -187,11 +188,18 @@ async def sincronizar_eventos_encerrados(
         eid = str(ev.get("discord_event_id", ""))
         if not filme_id or not eid:
             continue
+        assistidos = await asyncio.to_thread(convex_db.list_assistidos, filme_id)
+        parts_all = _participantes_todos_eventos_filme(filme_id)
+        if not parts_all:
+            continue
+        ids_reg = {a["user_id"] for a in assistidos}
+        if all(p["user_id"] in ids_reg for p in parts_all):
+            continue
         guild_id = str(ev.get("guild_id") or "")
         guild = guild_resolver(guild_id) if guild_id else None
         participantes = await coletar_participantes(
             guild, ev, eid, upsert_participante,
-            snapshot_canal=False, filme_id=filme_id,
+            snapshot_canal=False, filme_id=filme_id, incluir_api_discord=False,
         )
         if not participantes:
             continue
