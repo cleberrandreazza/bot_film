@@ -1109,8 +1109,13 @@ code {
   width: 28px; height: 28px; border-radius: 50%;
   object-fit: cover; background: var(--bg3); flex: 0 0 28px;
 }
-.assistido-item span:nth-child(2) { color: var(--text-hi); flex: 1; min-width: 0; }
-.assistido-source { font-size: 11px; }
+.assistido-item__meta {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.assistido-item__name { color: var(--text-hi); line-height: 1.25; }
+.assistido-item__date { color: var(--text-lo); font-size: 11px; line-height: 1.2; }
+.assistido-source { font-size: 11px; flex-shrink: 0; }
 .assistido-source--evento { color: var(--orange); }
 .assistido-source--manual { color: var(--green); }
 .assistido-source--fila    { color: var(--orange); }

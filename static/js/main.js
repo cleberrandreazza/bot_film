@@ -49,12 +49,19 @@ function loadAssistidos() {
         `https://cdn.discordapp.com/embed/avatars/${(BigInt(uid) >> 22n) % 6n}.png`;
       assistidosList.innerHTML = rows.map(u => {
         const av = u.avatar_url || fallbackAvatar(u.user_id);
+        const nome = u.display_name || u.username;
+        const data = u.data_assistido_fmt || '';
+        const srcLabel = u.source === 'evento' ? 'Sessão' : 'Manual';
+        const title = data ? `${nome} · ${data}` : nome;
         return `
-        <div class="assistido-item" title="${u.display_name || u.username}">
-          <img src="${av}" alt="${u.username}" loading="lazy"
+        <div class="assistido-item" title="${title}">
+          <img src="${av}" alt="${nome}" loading="lazy"
                onerror="this.onerror=null;this.src='${fallbackAvatar(u.user_id)}'" />
-          <span>${u.display_name || u.username}</span>
-          <span class="assistido-source assistido-source--${u.source}">${u.source === 'evento' ? '📅' : '✓'}</span>
+          <div class="assistido-item__meta">
+            <span class="assistido-item__name">${nome}</span>
+            ${data ? `<span class="assistido-item__date">${data}</span>` : ''}
+          </div>
+          <span class="assistido-source assistido-source--${u.source}" title="${srcLabel}">${u.source === 'evento' ? '📅' : '✓'}</span>
         </div>`;
       }).join('');
     })

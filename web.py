@@ -4,7 +4,7 @@ import requests
 import re
 import os
 import time
-import urllib.parse
+from datetime import datetime, timezone, timedelta
 
 import convex_db
 from discord_guild import invalidar_cache_usuario, usuario_e_cinefilo
@@ -33,9 +33,24 @@ _cache: dict = {}
 _TTL = 3600  # 1 hour
 
 
+_BRT = timezone(timedelta(hours=-3))
+
+
 def _avatar_url(user_id: str, avatar: str | None) -> str:
     from discord_profiles import avatar_cdn_url
     return avatar_cdn_url(user_id, avatar)
+
+
+def _format_data_assistido(raw: str | None) -> str | None:
+    """UTC legado → data legível em BRT (dd/mm/aaaa)."""
+    if not raw or not str(raw).strip():
+        return None
+    try:
+        dt = datetime.strptime(str(raw).strip()[:19], "%Y-%m-%d %H:%M:%S")
+        dt = dt.replace(tzinfo=timezone.utc).astimezone(_BRT)
+        return dt.strftime("%d/%m/%Y")
+    except ValueError:
+        return str(raw).strip()[:10]
 
 
 @app.context_processor
@@ -501,6 +516,7 @@ def api_assistidos(imdb_id):
                     pass
         r['avatar_url'] = avatar_cdn_url(uid, r.get('avatar'))
         r['display_name'] = r.get('display_name') or r.get('username') or ''
+        r['data_assistido_fmt'] = _format_data_assistido(r.get('data_assistido'))
     return jsonify(rows)
 
 
