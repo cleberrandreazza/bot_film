@@ -72,6 +72,21 @@ def inject_user():
     return {'current_user': u, 'pode_sorteio': pode_sorteio}
 
 
+def _static_version() -> str:
+    """Versão para cache-bust de CSS/JS (Railway injeta RAILWAY_GIT_COMMIT_SHA)."""
+    sha = (
+        os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+        or os.environ.get("SOURCE_VERSION")
+        or ""
+    ).strip()
+    return sha[:8] if sha else "3219823"
+
+
+@app.context_processor
+def inject_static_version():
+    return {"static_v": _static_version()}
+
+
 def _json_cinefilo_required():
     if 'user_id' not in session:
         return jsonify({'error': 'not_logged_in'}), 401

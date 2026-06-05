@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="{{ url_for('favicon') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ static_v }}" />
 </head>
 <body data-pode-sorteio="{% if pode_sorteio %}1{% else %}0{% endif %}">
 
@@ -131,8 +131,8 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/sorteio.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/main.js') }}?v={{ static_v }}"></script>
+  <script src="{{ url_for('static', filename='js/sorteio.js') }}?v={{ static_v }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
