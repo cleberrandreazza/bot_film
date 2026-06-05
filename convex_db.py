@@ -246,6 +246,16 @@ def list_eventos_by_filme(filme_id: str) -> list[dict]:
     return _q("eventos:listByFilme", {"filme_id": filme_id}) or []
 
 
+def cancelar_eventos_pendentes_filme(
+    filme_id: str, exceto_discord_event_id: str | None = None,
+) -> int:
+    """Marca agendado/ativo como cancelado — libera o filme no sorteio."""
+    args: dict = {"filme_id": filme_id}
+    if exceto_discord_event_id:
+        args["exceto_discord_event_id"] = str(exceto_discord_event_id)
+    return int(_m("eventos:cancelarPendentesDoFilme", args) or 0)
+
+
 def get_by_filme(filme_id: str) -> dict | None:
     return _q("listas:getByFilme", {"filme_id": filme_id})
 

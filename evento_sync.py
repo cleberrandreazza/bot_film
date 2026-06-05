@@ -154,6 +154,9 @@ async def finalizar_evento(
     )
     await registrar_assistidos_do_evento(guild, row, participantes)
     await asyncio.to_thread(convex_db.set_evento_status, discord_event_id, "encerrado")
+    await asyncio.to_thread(
+        convex_db.cancelar_eventos_pendentes_filme, row.get("filme_id", ""),
+    )
 
     titulo = row.get("titulo", "Filme")
     if notificar:

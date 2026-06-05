@@ -129,6 +129,30 @@ export const listByFilme = query({
   },
 });
 
+export const cancelarPendentesDoFilme = mutation({
+  args: {
+    filme_id: v.string(),
+    exceto_discord_event_id: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("eventos").collect();
+    let n = 0;
+    for (const r of rows) {
+      if (r.filme_id !== args.filme_id) continue;
+      if (!ATIVOS.includes(r.status)) continue;
+      if (
+        args.exceto_discord_event_id &&
+        r.discord_event_id === args.exceto_discord_event_id
+      ) {
+        continue;
+      }
+      await ctx.db.patch(r._id, { status: "cancelado" });
+      n++;
+    }
+    return n;
+  },
+});
+
 export const setStatusByDiscordEvent = mutation({
   args: { discord_event_id: v.string(), status: v.string() },
   handler: async (ctx, args) => {

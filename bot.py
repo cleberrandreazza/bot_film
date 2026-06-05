@@ -973,7 +973,7 @@ async def excluir_evento_cmd(interaction: discord.Interaction, filme: str):
         await interaction.followup.send(f"❌ Erro ao cancelar no Discord: {e}")
         return
 
-    await asyncio.to_thread(convex_db.set_evento_status, discord_event_id, "cancelado")
+    await asyncio.to_thread(convex_db.cancelar_eventos_pendentes_filme, row["filme_id"])
 
     await interaction.followup.send(
         f"🗑️ Sessão de **{titulo}** cancelada com sucesso."
@@ -1088,6 +1088,13 @@ async def on_scheduled_event_update(
     ):
         await _snapshot_canal_evento(after.guild, row, event_id)
         await asyncio.to_thread(convex_db.set_evento_status, event_id, "ativo")
+        return
+
+    if after.status == discord.EventStatus.canceled:
+        await asyncio.to_thread(convex_db.set_evento_status, event_id, "cancelado")
+        await asyncio.to_thread(
+            convex_db.cancelar_eventos_pendentes_filme, row["filme_id"],
+        )
         return
 
     if after.status != discord.EventStatus.completed:

@@ -441,6 +441,7 @@ def criar_evento_agendado(
             channel_id,
             gid,
         )
+        convex_db.cancelar_eventos_pendentes_filme(filme_id, exceto_discord_event_id=event_id)
     except Exception as e:
         print(f"[Evento] Convex: {e}")
 
