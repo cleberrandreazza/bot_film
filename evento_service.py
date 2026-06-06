@@ -16,10 +16,23 @@ _DISCORD_API = "https://discord.com/api/v10"
 _HTTP_HEADERS = {"User-Agent": "DiscordBot (https://github.com/cleberrandreazza/bot_film, 1.0)"}
 
 _DIAS_SEMANA_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
-_HORAS_EVENTO = (
-    "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
-    "20:00", "20:30", "21:00", "21:30", "22:00", "22:30", "23:00",
-)
+_EVENTO_HORA_INICIO_MIN = 12 * 60  # 12:00
+_EVENTO_HORA_FIM_MIN = 24 * 60  # 00:00 (meia-noite do fim do dia escolhido)
+_EVENTO_HORA_INTERVALO_MIN = 15
+
+
+def _build_horas_evento() -> tuple[str, ...]:
+    horas: list[str] = []
+    t = _EVENTO_HORA_INICIO_MIN
+    while t <= _EVENTO_HORA_FIM_MIN:
+        h = (t // 60) % 24
+        m = t % 60
+        horas.append(f"{h:02d}:{m:02d}")
+        t += _EVENTO_HORA_INTERVALO_MIN
+    return tuple(horas)
+
+
+_HORAS_EVENTO = _build_horas_evento()
 _EVENTO_DURACAO_PADRAO_MIN = 120
 _EVENTO_DURACAO_MIN_MIN = 30
 _EVENTO_DURACAO_MAX_MIN = 480
@@ -70,6 +83,16 @@ def opcoes_data() -> list[dict]:
 
 def opcoes_hora() -> list[str]:
     return list(_HORAS_EVENTO)
+
+
+def horas_validas_para_data(data: str) -> list[str]:
+    """Horários de 15 em 15 min ainda disponíveis na data informada (BRT)."""
+    out: list[str] = []
+    for hora in _HORAS_EVENTO:
+        dt, erro = parse_data_hora(data, hora)
+        if dt is not None and erro is None:
+            out.append(hora)
+    return out
 
 
 def limites_picker_evento() -> dict:
@@ -176,6 +199,8 @@ def parse_data_hora(data: str, hora: str) -> tuple[datetime | None, str | None]:
                 "(ex.: 20:00, 20:15, 20:30)."
             )
         dt = dt.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0, tzinfo=BRT)
+        if t.hour == 0 and t.minute == 0:
+            dt += timedelta(days=1)
     except ValueError:
         return None, "Hora inválida. Use HH:MM (ex: 20:00)."
 

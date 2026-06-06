@@ -14,7 +14,7 @@ import convex_db
 from sorteio_utils import sortear_fila_bot
 from synopsis_utils import sinopse_para_filme
 from event_cover_utils import preparar_capa_evento, genero_para_evento
-from evento_service import criar_evento_agendado
+from evento_service import criar_evento_agendado, horas_validas_para_data, opcoes_hora
 from evento_sync import finalizar_evento, sincronizar_eventos_encerrados
 
 # ---- CONFIGURAÇÃO INICIAL DO BOT ----
@@ -512,10 +512,7 @@ async def slash_sorteio(interaction: discord.Interaction):
 # ================================================================
 
 _DIAS_SEMANA_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
-_HORAS_EVENTO_SUGESTAO = (
-    "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
-    "20:00", "20:30", "21:00", "21:30", "22:00", "22:30", "23:00",
-)
+_HORAS_EVENTO_SUGESTAO = tuple(opcoes_hora())
 
 
 def _parse_data_evento(data: str, now: datetime) -> datetime | None:
@@ -749,11 +746,45 @@ def _opcoes_select_data() -> list[discord.SelectOption]:
     ]
 
 
-def _opcoes_select_hora() -> list[discord.SelectOption]:
-    return [
-        discord.SelectOption(label=h, value=h)
-        for h in _HORAS_EVENTO_SUGESTAO
-    ]
+_SELECT_HORA_PAGE_SIZE = 23
+
+
+def _opcoes_select_hora(
+    data_val: str | None = None, page: int = 0
+) -> list[discord.SelectOption]:
+    """Máx. 25 opções do Discord — pagina quando há mais horários (intervalo de 15 min)."""
+    if data_val:
+        horas = horas_validas_para_data(data_val)
+    else:
+        horas = list(_HORAS_EVENTO_SUGESTAO)
+    if not horas:
+        return [
+            discord.SelectOption(
+                label="Nenhum horário disponível nesta data",
+                value="__none__",
+            )
+        ]
+
+    start = page * _SELECT_HORA_PAGE_SIZE
+    chunk = horas[start : start + _SELECT_HORA_PAGE_SIZE]
+    opts = [discord.SelectOption(label=h, value=h) for h in chunk]
+    has_prev = page > 0
+    has_next = start + _SELECT_HORA_PAGE_SIZE < len(horas)
+    if has_next:
+        opts.append(
+            discord.SelectOption(
+                label="➡️ Ver mais horários…",
+                value=f"__page__{page + 1}",
+            )
+        )
+    if has_prev:
+        opts.append(
+            discord.SelectOption(
+                label="⬅️ Horários anteriores",
+                value=f"__page__{page - 1}",
+            )
+        )
+    return opts[:25]
 
 
 async def _resolver_filme_evento(filme: str) -> tuple[str, str, str, str] | None:
@@ -873,6 +904,11 @@ class EventoDataSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         view: EventoAgendarView = self.view
         view.data_val = self.values[0]
+        view.hora_val = None
+        for item in view.children:
+            if isinstance(item, EventoHoraSelect):
+                item.refresh(view.data_val, page=0)
+                break
         view._atualizar_botao()
         await interaction.response.edit_message(
             content=view._mensagem_status(), view=view
@@ -882,15 +918,38 @@ class EventoDataSelect(discord.ui.Select):
 class EventoHoraSelect(discord.ui.Select):
     def __init__(self):
         super().__init__(
-            placeholder="🕐 Escolha o horário",
-            options=_opcoes_select_hora(),
+            placeholder="🕐 Escolha a data primeiro",
+            options=[discord.SelectOption(label="—", value="__wait__")],
             min_values=1,
             max_values=1,
+            disabled=True,
         )
+        self.page = 0
+
+    def refresh(self, data_val: str | None, page: int = 0) -> None:
+        self.page = page
+        self.disabled = not data_val
+        self.placeholder = (
+            "🕐 Escolha o horário" if data_val else "🕐 Escolha a data primeiro"
+        )
+        self.options = _opcoes_select_hora(data_val, page)
 
     async def callback(self, interaction: discord.Interaction):
         view: EventoAgendarView = self.view
-        view.hora_val = self.values[0]
+        valor = self.values[0]
+        if valor.startswith("__page__"):
+            nova_pagina = int(valor.removeprefix("__page__"))
+            self.refresh(view.data_val, page=nova_pagina)
+            await interaction.response.edit_message(
+                content=view._mensagem_status(), view=view
+            )
+            return
+        if valor in ("__wait__", "__none__"):
+            await interaction.response.send_message(
+                "Escolha uma data com horários disponíveis.", ephemeral=True
+            )
+            return
+        view.hora_val = valor
         view._atualizar_botao()
         await interaction.response.edit_message(
             content=view._mensagem_status(), view=view
