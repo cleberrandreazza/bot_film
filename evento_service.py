@@ -159,6 +159,12 @@ def _omdb_valor(val) -> str:
     return str(val).strip()
 
 
+def _discord_image_data_uri(image_bytes: bytes, mime: str = "image/jpeg") -> str:
+    """Discord exige Data URI (não só base64 cru) no campo image."""
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
 def _parse_data_evento(data: str, now: datetime) -> datetime | None:
     data = data.strip()
     alias = data.lower().replace("ã", "a")
@@ -422,9 +428,13 @@ def criar_evento_agendado(
         "channel_id": int(channel_id),
     }
 
-    capa_bytes = preparar_capa_evento(filme_id, capa_url or "")
+    poster_url = (capa_url or "").strip()
+    if not poster_url and omdb_data:
+        poster_url = _omdb_valor(omdb_data.get("Poster", ""))
+
+    capa_bytes = preparar_capa_evento(filme_id, poster_url)
     if capa_bytes:
-        payload["image"] = base64.b64encode(capa_bytes).decode("ascii")
+        payload["image"] = _discord_image_data_uri(capa_bytes)
 
     try:
         r = requests.post(
@@ -434,6 +444,7 @@ def criar_evento_agendado(
             timeout=20,
         )
         if not r.ok and "image" in payload:
+            print(f"[Evento] Capa rejeitada ({r.status_code}): {r.text[:400]}")
             payload.pop("image", None)
             r = requests.post(
                 f"{_DISCORD_API}/guilds/{gid}/scheduled-events",
