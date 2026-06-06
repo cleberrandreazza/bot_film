@@ -207,6 +207,73 @@
         {% endif %}
       </div>
 
+      {# ── CRIAR EVENTO (Cinéfilo) ── #}
+      {% if pode_sorteio %}
+      <div class="lbd-sidebar-block" id="filme-evento-block">
+        <div class="assistido-header">
+          <h4 class="lbd-sidebar-title">Sessão no Discord</h4>
+        </div>
+        {% if tem_evento_ativo %}
+        <p class="assistidos-empty">Já existe uma sessão agendada para este filme.</p>
+        {% else %}
+        <form
+          id="filme-evento-form"
+          class="filme-evento-form sorteio-evento-form"
+          data-imdb="{{ filme.imdb_id }}"
+          data-titulo="{{ filme.titulo }}"
+          data-poster="{{ filme.poster or '' }}"
+          data-ano="{{ filme.ano or '' }}"
+        >
+          <p id="filme-evento-tz" class="sorteio-evento-form__tz">Horário de Brasília (BRT)</p>
+          <div class="sorteio-evento-form__row">
+            <div class="sorteio-evento-form__field sorteio-evento-form__field--date" role="group" aria-labelledby="filme-date-label">
+              <span id="filme-date-label">Data</span>
+              <div class="sorteio-dd-select" id="filme-date-select">
+                <input type="hidden" id="filme-evento-data" value="" required />
+                <button
+                  type="button"
+                  class="sorteio-dd-select__trigger"
+                  id="filme-date-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-labelledby="filme-date-label"
+                >
+                  <span class="sorteio-dd-select__value sorteio-dd-select__value--placeholder" id="filme-date-value">Escolha a data</span>
+                  <span class="sorteio-dd-select__chev" aria-hidden="true"></span>
+                </button>
+                <ul class="sorteio-dd-select__list" id="filme-date-list" role="listbox" hidden></ul>
+              </div>
+            </div>
+            <div class="sorteio-evento-form__field sorteio-evento-form__field--time" role="group" aria-labelledby="filme-time-label">
+              <span id="filme-time-label">Horário</span>
+              <div class="sorteio-dd-select" id="filme-time-select">
+                <input type="hidden" id="filme-evento-hora" value="" required />
+                <button
+                  type="button"
+                  class="sorteio-dd-select__trigger"
+                  id="filme-time-trigger"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-labelledby="filme-time-label"
+                >
+                  <span class="sorteio-dd-select__value sorteio-dd-select__value--placeholder" id="filme-time-value">Escolha o horário</span>
+                  <span class="sorteio-dd-select__chev" aria-hidden="true"></span>
+                </button>
+                <ul class="sorteio-dd-select__list" id="filme-time-list" role="listbox" hidden></ul>
+              </div>
+            </div>
+          </div>
+          <p class="sorteio-evento-form__hint">Horários 12:00–00:00, de 15 em 15 min (BRT).</p>
+          <button type="submit" class="sorteio-btn sorteio-btn--primary sorteio-btn--evento" id="filme-evento-submit" disabled>
+            Criar sessão
+          </button>
+        </form>
+        <p id="filme-evento-error" class="filme-evento-error" hidden></p>
+        <p id="filme-evento-success" class="sorteio-evento-success" hidden></p>
+        {% endif %}
+      </div>
+      {% endif %}
+
       {# ── ADICIONADO À LISTA POR ── #}
       <div class="lbd-sidebar-block" id="adicionado-block">
         <div class="assistido-header">
@@ -249,4 +316,8 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/filme-evento.js') }}?v={{ static_v }}"></script>
 {% endblock %}

@@ -1098,6 +1098,25 @@ code {
 .fila-btn--disabled     { opacity: .45; cursor: default; }
 .fila-btn__remove       { opacity: .7; font-weight: 400; }
 
+.filme-evento-form {
+  margin-top: 0;
+  padding: 0;
+  border-top: none;
+}
+.filme-evento-form .sorteio-evento-form__row {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.filme-evento-form .sorteio-btn--evento {
+  margin-top: 4px;
+}
+.filme-evento-error {
+  font-size: 13px;
+  color: var(--orange);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
 .assistidos-avatars {
   display: flex; flex-direction: column; gap: 8px;
   margin-top: 8px;

@@ -758,8 +758,14 @@ def filme_page(imdb_id):
     if 'user_id' in session:
         user_watched = convex_db.exists_assistido(imdb_id, session['user_id'])
     in_fila = convex_db.get_status_by_filme(imdb_id) == 'watchlist'
-    return render_template('filme.html', filme=info,
-                           user_watched=user_watched, in_fila=in_fila)
+    tem_evento_ativo = imdb_id in convex_db.filme_ids_com_evento_ativo()
+    return render_template(
+        'filme.html',
+        filme=info,
+        user_watched=user_watched,
+        in_fila=in_fila,
+        tem_evento_ativo=tem_evento_ativo,
+    )
 
 
 SECOES = {
