@@ -16,15 +16,15 @@ _DISCORD_API = "https://discord.com/api/v10"
 _HTTP_HEADERS = {"User-Agent": "DiscordBot (https://github.com/cleberrandreazza/bot_film, 1.0)"}
 
 _DIAS_SEMANA_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
-_EVENTO_HORA_INICIO_MIN = 12 * 60  # 12:00
-_EVENTO_HORA_FIM_MIN = 24 * 60  # 00:00 (meia-noite do fim do dia escolhido)
+_EVENTO_HORA_INICIO_MIN = 0  # 00:00
+_EVENTO_HORA_FIM_MIN = 24 * 60  # até 23:45 (exclusive)
 _EVENTO_HORA_INTERVALO_MIN = 15
 
 
 def _build_horas_evento() -> tuple[str, ...]:
     horas: list[str] = []
     t = _EVENTO_HORA_INICIO_MIN
-    while t <= _EVENTO_HORA_FIM_MIN:
+    while t < _EVENTO_HORA_FIM_MIN:
         h = (t // 60) % 24
         m = t % 60
         horas.append(f"{h:02d}:{m:02d}")
@@ -205,7 +205,7 @@ def parse_data_hora(data: str, hora: str) -> tuple[datetime | None, str | None]:
                 "(ex.: 20:00, 20:15, 20:30)."
             )
         dt = dt.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0, tzinfo=BRT)
-        if t.hour == 0 and t.minute == 0:
+        if t.hour == 0 and t.minute == 0 and dt < now:
             dt += timedelta(days=1)
     except ValueError:
         return None, "Hora inválida. Use HH:MM (ex: 20:00)."

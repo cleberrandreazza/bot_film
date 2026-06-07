@@ -105,9 +105,18 @@ if (filmeEventoForm && document.body?.dataset?.podeSorteio === '1') {
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   }
 
+  function instanteEventoBRT(dataStr, timeStr) {
+    const instante = instanteBRT(dataStr, timeStr);
+    const { hh, mm } = horaPara24h(timeStr);
+    if (hh === 0 && mm === 0 && instante <= new Date()) {
+      return new Date(instante.getTime() + 24 * 60 * 60 * 1000);
+    }
+    return instante;
+  }
+
   function dataHoraEventoValida() {
     if (!eventoData?.value || !eventoHora?.value) return false;
-    return instanteBRT(eventoData.value, eventoHora.value) > new Date();
+    return instanteEventoBRT(eventoData.value, eventoHora.value) > new Date();
   }
 
   function rotuloDataSelecionada(iso) {
